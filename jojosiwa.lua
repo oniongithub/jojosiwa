@@ -745,7 +745,7 @@ callbacks.add_event("player_hurt", function(ctx)
         local ent, attacker = entity_list.get_player_from_userid(ctx.userid), entity_list.get_player_from_userid(ctx.attacker)
 
         if (ent and ent:is_player() and attacker and attacker:is_player() and attacker == local_player) then
-            local damage = e.dmg_health
+            local damage = ctx.dmg_health
 
             if (damage and not ent:is_enemy()) then
                 hud.team_damage.damage = hud.team_damage.damage + damage
@@ -1407,7 +1407,7 @@ callbacks.add_event("player_hurt", function(ctx)
         local ent, attacker = entity_list.get_player_from_userid(ctx.userid), entity_list.get_player_from_userid(ctx.attacker)
 
         if (ent and ent:is_player() and attacker and attacker:is_player()) then
-            local name, damage = ent:get_name(), e.dmg_health
+            local name, damage = ent:get_name(), ctx.dmg_health
 
             if (name and damage and logging.control:get(logging.functions.damage)) then
                 if (health > 0) then
@@ -1446,7 +1446,7 @@ callbacks.add_event("item_pickup", function(ctx)
 
         if (ent and ent:is_player() and local_player and local_player:is_player() and ent == local_player) then
             if (logging.control:get(logging.functions.item_pickup)) then
-                notification.add("Picked Up", "You just picked up " .. e.item .. ".", 5)
+                notification.add("Picked Up", "You just picked up " .. ctx.item .. ".", 5)
             end
         end
     end
