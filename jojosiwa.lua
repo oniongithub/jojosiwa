@@ -1,34 +1,12 @@
--- protect her well ducarii
-
 --[[
     Globals
 --]]
 
 local global = {} global.__index = {}
-global.whitelist = { 
-    whitelisted = false,
-    users = {
-        { name = "onion", uid = 84 }, { name = "north", uid = 188 }, { name = "Arid", uid = 39 }, { name = "Ktown", uid = 125 },
-        { name = "neplo", uid = 627 }, { name = "ghosted", uid = 872 }, { name = "Nelson", uid = 703 }, { name = "DucaRii", uid = 1 },
-        { name = "morgue", uid = 2 }, { name = "Pagonia", uid = 3 }, { name = "riri", uid = 4 }, { name = "Classy", uid = 391 },
-        { name = "jake", uid = 267 }, { name = "Astral", uid = 1152 }, { name = "Brfs", uid = 1395 }, { name = "thiocodin", uid = 368 },
-        { name = "dve", uid = 1203 },
-    }
-}
-
-for i = 1, #global.whitelist.users do
-    if (user.name == global.whitelist.users[i].name and user.uid == global.whitelist.users[i].uid) then
-        global.whitelist.whitelisted = true
-    end
-end
 
 local hud = {} hud.__index = hud
-hud.controls = menu.add_multi_selection("HUD", "HUD Elements", { "Keybinds", "Spectator List", "Watermark", "Information", "Health Info", "Weapon Info", "Scoreboard", "Chatbox", "Radar", "Step Counter", "Team Damage" })
+hud.controls = menu.add_multi_selection("HUD", "HUD Elements", { "Keybinds", "Spectator List", "Watermark", "Information", "Health Info", "Weapon Info", "Scoreboard", "Chatbox", "Radar", "Step Counter", "Team Damage", "Player List" })
 local local_player, local_player_or_spectating, screen_size = entity_list.get_local_player(), entity_list.get_local_player_or_spectating(), render.get_screen_size()
-
-if (global.whitelist.whitelisted) then
-    hud.controls:add_item("Player List")
-end
 
 global.window_references = {
     double_tap = menu.find("aimbot", "general", "exploits", "doubletap", "enable"),
@@ -316,6 +294,50 @@ function filesystem.load_icon(weap)
     
     return
 end
+
+--[[
+    Event Callbacks Library
+--]]
+
+local event_library, event_library_id = { }, 0
+
+callbacks.add_event = function(event, fn)
+    event_library_id = event_library_id + 1
+
+    for i = 1, #event_library do
+        if (event_library[i].event == event) then
+            table.insert(event_library[i].functions, { id = event_library_id, fn = fn })
+
+            return event_library_id
+        end
+    end
+
+    table.insert(event_library, { event = event, functions = { { id = event_library_id, fn = fn } } })
+    return event_library_id
+end
+
+callbacks.remove_event = function(id)
+    for i = 1, #event_library do
+        for f = 1, #event_library[i].functions do
+            if (event_library[i].functions[f].id == id) then
+                table.remove(event_library[i].functions, f)
+                return true
+            end
+        end
+    end
+
+    return false
+end
+
+callbacks.add(e_callbacks.EVENT, function(event)
+    for i = 1, #event_library do
+        if (event_library[i].event == event.name) then
+            for f = 1, #event_library[i].functions do
+                event_library[i].functions[f].fn(event)
+            end
+        end
+    end
+end)
 
 --[[
     Window Library
@@ -650,7 +672,7 @@ hud.windows = {
     radar = window.add_window(vec2_t(200, 220), "Radar", hud.toggles.radar, window.flags.FL_RESIZE_H, window.flags.FL_RESIZE_V),
     steps = window.add_window(vec2_t(150, 125), "Step Counter", hud.toggles.steps),
     team_damage = window.add_window(vec2_t(250, 100), "Team Damage", hud.toggles.team_damage, window.flags.FL_RESIZE_H),
-    player_list = global.whitelist.whitelisted and window.add_window(vec2_t(450, 300), "Player List", hud.toggles.player_list, window.flags.FL_RESIZE_H, window.flags.FL_RESIZE_V) or nil,
+    player_list = window.add_window(vec2_t(450, 300), "Player List", hud.toggles.player_list, window.flags.FL_RESIZE_H, window.flags.FL_RESIZE_V),
 }
 
 hud.context_control = menu.add_selection("HUD Controls", "Element Controls", {"None", "Watermark", "Spectators", "Keybinds"})
@@ -704,6 +726,34 @@ window.window_list[hud.windows.team_damage].draw_fn = function()
     window.window_list[hud.windows.team_damage].size.y = window.window_list[hud.windows.team_damage].tab_height + 8 + used_space.y
 end
 
+callbacks.add_event("player_death", function(ctx)
+    if (ctx.userid and type(ctx.userid) == "number") then
+        local ent, attacker = entity_list.get_player_from_userid(ctx.userid), entity_list.get_player_from_userid(ctx.attacker)
+
+        if (ent and ent:is_player() and attacker and attacker:is_player()) then
+            if (local_player and local_player:is_player() and attacker == local_player) then
+                if (not ent:is_enemy()) then
+                    hud.team_damage.kills = hud.team_damage.kills + 1
+                end
+            end
+        end
+    end
+end)
+
+callbacks.add_event("player_hurt", function(ctx)
+    if (ctx.userid and type(ctx.userid) == "number") then
+        local ent, attacker = entity_list.get_player_from_userid(ctx.userid), entity_list.get_player_from_userid(ctx.attacker)
+
+        if (ent and ent:is_player() and attacker and attacker:is_player() and attacker == local_player) then
+            local damage = e.dmg_health
+
+            if (damage and not ent:is_enemy()) then
+                hud.team_damage.damage = hud.team_damage.damage + damage
+            end
+        end
+    end
+end)
+
 -- Step Counter's Window
 hud.steps = { count = 0 }
 window.window_list[hud.windows.steps].draw_fn = function()
@@ -723,6 +773,16 @@ window.window_list[hud.windows.steps].draw_fn = function()
     render.pop_clip()
     window.window_list[hud.windows.steps].size.y = window.window_list[hud.windows.steps].tab_height + 8 + used_space.y
 end
+
+callbacks.add_event("player_footstep", function(ctx)
+    if (ctx.userid and type(ctx.userid) == "number") then
+        local ent = entity_list.get_player_from_userid(ctx.userid)
+
+        if (ent and ent:is_player() and ent == local_player) then
+            hud.steps.count = hud.steps.count + 1
+        end
+    end
+end)
 
 -- Radar's Window
 window.window_list[hud.windows.radar].draw_fn = function()
@@ -820,6 +880,28 @@ window.window_list[hud.windows.chat].draw_fn = function()
     render.pop_clip()
     window.window_list[hud.windows.chat].size.y = window.window_list[hud.windows.chat].tab_height + 8 + used_space.y
 end
+
+hud.chatbox.event_function = function(ctx)
+    if (ctx.userid and type(ctx.userid) == "number") then
+        local ent = entity_list.get_player_from_userid(ctx.userid)
+
+        if (ent and ent:is_player()) then
+            local dead, text, teamchat, name, team = not ent:is_alive(), ctx.text, ctx.teamonly, ent:get_name(), ent:get_prop("m_iTeamNum")
+
+            if (#hud.chatbox.logs >= 6) then
+                for i = 1, #hud.chatbox.logs - 5 do
+                    table.remove(hud.chatbox.logs, 1)
+                end
+            end
+
+            hud.chatbox.last_message = client.get_unix_time()
+            table.insert(hud.chatbox.logs, { text = text, dead = dead, teamchat = teamchat, team = team, name = name})
+        end
+    end
+end
+
+callbacks.add_event("player_say", function(ctx) hud.chatbox.event_function(ctx) end)
+callbacks.add_event("player_chat", function(ctx) hud.chatbox.event_function(ctx) end)
 
 -- Scoreboard's Window
 window.window_list[hud.windows.score].draw_fn = function()
@@ -1162,119 +1244,136 @@ function player_list.run_repeat_text(chat, ent)
     engine.execute_cmd("say " .. text)
 end
 
-if (global.whitelist.whitelisted) then
-    window.window_list[hud.windows.player_list].draw_fn = function()
-        window.window_list[hud.windows.player_list].flags.FL_NOMOVE = false
-        local valve = game_rules.get_prop("m_bIsValveDS")
+function player_list.repeat_text_event(ctx)
+    if (ctx.userid and type(ctx.userid) == "number") then
+        local ent = entity_list.get_player_from_userid(ctx.userid)
 
-        for i = #player_list.table, 1, -1 do
-            if (not player_list.table[i].entity or not player_list.table[i].entity:is_player()) then
-                table.remove(player_list.table, i)
+        if (ent and ent:is_player()) then
+            if (ent ~= local_player) then
+                local contains, ind = player_list.contains(ent)
+
+                if (contains and player_list.table[ind].checks.repeat_chat) then
+                    player_list.run_repeat_text(ctx.text)
+                end
             end
         end
+    end
+end
 
-        if (local_player_or_spectating and local_player_or_spectating:is_player()) then
-            render.push_clip(window.window_list[hud.windows.player_list].pos, window.window_list[hud.windows.player_list].size)
+callbacks.add_event("player_say", function(ctx) player_list.repeat_text_event(ctx) end)
+callbacks.add_event("player_chat", function(ctx) player_list.repeat_text_event(ctx) end)
 
+window.window_list[hud.windows.player_list].draw_fn = function()
+    window.window_list[hud.windows.player_list].flags.FL_NOMOVE = false
+    local valve = game_rules.get_prop("m_bIsValveDS")
+
+    for i = #player_list.table, 1, -1 do
+        if (not player_list.table[i].entity or not player_list.table[i].entity:is_player()) then
+            table.remove(player_list.table, i)
+        end
+    end
+
+    if (local_player_or_spectating and local_player_or_spectating:is_player()) then
+        render.push_clip(window.window_list[hud.windows.player_list].pos, window.window_list[hud.windows.player_list].size)
+
+        local collumn_size = vec2_t((window.window_list[hud.windows.player_list].size.x - 24) / 4, window.window_list[hud.windows.player_list].size.y - window.window_list[hud.windows.player_list].tab_height - 8)
+        render.rect_filled(vec2_t(window.window_list[hud.windows.player_list].pos.x + 8, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y), color_t(25, 25, 25, 255), 6)
+        render.rect_filled(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y), color_t(25, 25, 25, 255), 6)
+        render.pop_clip()
+
+        if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 8, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))) then
+            player_list.scroll.y = math.clamp(player_list.scroll.y + input.get_scroll_delta() * 10, -player_list.scroll_max.y, 0)
+        elseif (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))) then
+            player_list.scroll.x = math.clamp(player_list.scroll.x + input.get_scroll_delta() * 10, -player_list.scroll_max.x, 0)
+        end
+
+        local function add_control(name, button, is_enabled, used_space, fn)
             local collumn_size = vec2_t((window.window_list[hud.windows.player_list].size.x - 24) / 4, window.window_list[hud.windows.player_list].size.y - window.window_list[hud.windows.player_list].tab_height - 8)
-            render.rect_filled(vec2_t(window.window_list[hud.windows.player_list].pos.x + 8, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y), color_t(25, 25, 25, 255), 6)
-            render.rect_filled(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y), color_t(25, 25, 25, 255), 6)
-            render.pop_clip()
+            local pos = vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height + player_list.scroll.x)
+            local size = vec2_t(collumn_size.x * 2, collumn_size.y)
 
-            if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 8, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))) then
-                player_list.scroll.y = math.clamp(player_list.scroll.y + input.get_scroll_delta() * 10, -player_list.scroll_max.y, 0)
-            elseif (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))) then
-                player_list.scroll.x = math.clamp(player_list.scroll.x + input.get_scroll_delta() * 10, -player_list.scroll_max.x, 0)
+            render.push_clip(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))
+            local text_size, text_pos = render.get_text_size(window.fonts.segoe_ui_13, name)
+            if (button) then
+                text_pos = vec2_t(pos.x + size.x / 2 - text_size.x / 2, pos.y + used_space.x + text_size.y / 4 + 8)
+                render.rect_filled(vec2_t(pos.x + 8, pos.y + used_space.x + 8), vec2_t(size.x - 16, text_size.y + 8), color_t(35, 35, 35, 255), 6)
+            else
+                text_pos = vec2_t(pos.x + size.x / 2 - text_size.x / 2, pos.y + used_space.x + text_size.y / 4 + 8)
+                render.rect_filled(vec2_t(pos.x + 8, pos.y + used_space.x + 8), vec2_t(text_size.y + 8, text_size.y + 8), color_t(35, 35, 35, 255), 6)
+
+                if (is_enabled) then
+                    render.rect_filled(vec2_t(pos.x + 12, pos.y + used_space.x + 12), vec2_t(text_size.y, text_size.y), global.color, 6)
+                end
             end
 
-            local function add_control(name, button, is_enabled, used_space, fn)
-                local collumn_size = vec2_t((window.window_list[hud.windows.player_list].size.x - 24) / 4, window.window_list[hud.windows.player_list].size.y - window.window_list[hud.windows.player_list].tab_height - 8)
-                local pos = vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height + player_list.scroll.x)
-                local size = vec2_t(collumn_size.x * 2, collumn_size.y)
+            if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))
+                and input.is_mouse_in_bounds(vec2_t(pos.x + 8, pos.y + used_space.x + 8), vec2_t(size.x - 16, text_size.y + 8))) then
+                window.window_list[hud.windows.player_list].flags.FL_NOMOVE = true
+                render.text(window.fonts.segoe_ui_13, name, text_pos, global.color)
 
-                render.push_clip(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))
-                local text_size, text_pos = render.get_text_size(window.fonts.segoe_ui_13, name)
-                if (button) then
-                    text_pos = vec2_t(pos.x + size.x / 2 - text_size.x / 2, pos.y + used_space.x + text_size.y / 4 + 8)
-                    render.rect_filled(vec2_t(pos.x + 8, pos.y + used_space.x + 8), vec2_t(size.x - 16, text_size.y + 8), color_t(35, 35, 35, 255), 6)
-                else
-                    text_pos = vec2_t(pos.x + size.x / 2 - text_size.x / 2, pos.y + used_space.x + text_size.y / 4 + 8)
-                    render.rect_filled(vec2_t(pos.x + 8, pos.y + used_space.x + 8), vec2_t(text_size.y + 8, text_size.y + 8), color_t(35, 35, 35, 255), 6)
-
-                    if (is_enabled) then
-                        render.rect_filled(vec2_t(pos.x + 12, pos.y + used_space.x + 12), vec2_t(text_size.y, text_size.y), global.color, 6)
+                if (input.is_key_pressed(e_keys.MOUSE_LEFT) and ply ~= selected_ent) then
+                    if (button) then
+                        fn()
+                    else
+                        is_enabled = not is_enabled
                     end
                 end
+            else
+                render.text(window.fonts.segoe_ui_13, name, text_pos, color_t(225, 225, 225))
+            end
+            render.pop_clip()
 
-                if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))
-                    and input.is_mouse_in_bounds(vec2_t(pos.x + 8, pos.y + used_space.x + 8), vec2_t(size.x - 16, text_size.y + 8))) then
-                    window.window_list[hud.windows.player_list].flags.FL_NOMOVE = true
-                    render.text(window.fonts.segoe_ui_13, name, text_pos, global.color)
+            used_space.x = used_space.x + text_size.y + 12
+            return used_space, is_enabled
+        end
+
+        local players, used_space = entity_list.get_players(false), vec2_t(0, 0)
+        for _, ply in pairs(players) do
+            if (ply ~= local_player) then
+                local text_size = render.get_text_size(window.fonts.segoe_ui_13, ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name())
+                local text_pos = vec2_t(window.window_list[hud.windows.player_list].pos.x + 14, window.window_list[hud.windows.player_list].pos.y + used_space.y + player_list.scroll.y + window.window_list[hud.windows.player_list].tab_height + 6)
+                
+                render.push_clip(vec2_t(window.window_list[hud.windows.player_list].pos.x + 12, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2 - 20, collumn_size.y - 12))
+                if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 12, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2 - 20, collumn_size.y - 12))
+                    and input.is_mouse_in_bounds(vec2_t(text_pos.x, text_pos.y - 2), vec2_t(collumn_size.x * 2 - 20, text_size.y + 4)) or ply == selected_ent) then
+                    render.text(window.fonts.segoe_ui_13, ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name(), text_pos, global.color)
+                    if (ply ~= selected_ent) then window.window_list[hud.windows.player_list].flags.FL_NOMOVE = true end
 
                     if (input.is_key_pressed(e_keys.MOUSE_LEFT) and ply ~= selected_ent) then
-                        if (button) then
-                            fn()
-                        else
-                            is_enabled = not is_enabled
-                        end
+                        selected_ent = ply
                     end
                 else
-                    render.text(window.fonts.segoe_ui_13, name, text_pos, color_t(225, 225, 225))
+                    render.text(window.fonts.segoe_ui_13, ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name(), text_pos, color_t(225, 225, 225))
                 end
                 render.pop_clip()
 
-                used_space.x = used_space.x + text_size.y + 12
-                return used_space, is_enabled
-            end
+                if (ply == selected_ent) then
+                    local contained, ind = player_list.contains(ply)
+                    if (not contained) then
+                        table.insert(player_list.table, {entity = ply, checks = { repeat_chat = false, priority = false, whitelist = false, baim = false, steal_clantag = false }})
+                        ind = #player_list.table
+                    end
 
-            local players, used_space = entity_list.get_players(false), vec2_t(0, 0)
-            for _, ply in pairs(players) do
-                if (ply ~= local_player) then
-                    local text_size = render.get_text_size(window.fonts.segoe_ui_13, ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name())
-                    local text_pos = vec2_t(window.window_list[hud.windows.player_list].pos.x + 14, window.window_list[hud.windows.player_list].pos.y + used_space.y + player_list.scroll.y + window.window_list[hud.windows.player_list].tab_height + 6)
-                    
-                    render.push_clip(vec2_t(window.window_list[hud.windows.player_list].pos.x + 12, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2 - 20, collumn_size.y - 12))
-                    if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 12, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2 - 20, collumn_size.y - 12))
-                        and input.is_mouse_in_bounds(vec2_t(text_pos.x, text_pos.y - 2), vec2_t(collumn_size.x * 2 - 20, text_size.y + 4)) or ply == selected_ent) then
-                        render.text(window.fonts.segoe_ui_13, ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name(), text_pos, global.color)
-                        if (ply ~= selected_ent) then window.window_list[hud.windows.player_list].flags.FL_NOMOVE = true end
+                    used_space, player_list.table[ind].checks.whitelist = add_control("Whitelist", false, player_list.table[ind].checks.whitelist, used_space)
+                    used_space, player_list.table[ind].checks.priority = add_control("Priority", false, player_list.table[ind].checks.priority, used_space)
+                    used_space, player_list.table[ind].checks.baim = add_control("Force Bodyaim", false, player_list.table[ind].checks.baim, used_space)
 
-                        if (input.is_key_pressed(e_keys.MOUSE_LEFT) and ply ~= selected_ent) then
-                            selected_ent = ply
-                        end
+                    used_space = add_control("Steal Username", true, nil, used_space, function() cvars.name:set_string(ply:get_name()) end)
+
+                    if (not ply:has_player_flag(e_player_flags.FAKE_CLIENT)) then
+                        used_space, player_list.table[ind].checks.steal_clantag = add_control("Steal Clantag", false, player_list.table[ind].checks.steal_clantag, used_space)
+                        used_space, player_list.table[ind].checks.repeat_chat = add_control("Repeat Chat", false, player_list.table[ind].checks.repeat_chat, used_space)
                     else
-                        render.text(window.fonts.segoe_ui_13, ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name(), text_pos, color_t(225, 225, 225))
+                        used_space = add_control("Kick Bot", true, nil, used_space, function() engine.execute_cmd("kick " .. ply:get_name()) end)
+                        used_space = add_control("Kill Bot", true, nil, used_space, function() engine.execute_cmd("kill " .. ply:get_name()) end)
                     end
-                    render.pop_clip()
-
-                    if (ply == selected_ent) then
-                        local contained, ind = player_list.contains(ply)
-                        if (not contained) then
-                            table.insert(player_list.table, {entity = ply, checks = { repeat_chat = false, priority = false, whitelist = false, baim = false, steal_clantag = false }})
-                            ind = #player_list.table
-                        end
-
-                        used_space, player_list.table[ind].checks.whitelist = add_control("Whitelist", false, player_list.table[ind].checks.whitelist, used_space)
-                        used_space, player_list.table[ind].checks.priority = add_control("Priority", false, player_list.table[ind].checks.priority, used_space)
-                        used_space, player_list.table[ind].checks.baim = add_control("Force Bodyaim", false, player_list.table[ind].checks.baim, used_space)
-
-                        used_space = add_control("Steal Username", true, nil, used_space, function() cvars.name:set_string(ply:get_name()) end)
-
-                        if (not ply:has_player_flag(e_player_flags.FAKE_CLIENT)) then
-                            used_space, player_list.table[ind].checks.steal_clantag = add_control("Steal Clantag", false, player_list.table[ind].checks.steal_clantag, used_space)
-                            used_space, player_list.table[ind].checks.repeat_chat = add_control("Repeat Chat", false, player_list.table[ind].checks.repeat_chat, used_space)
-                        else
-                            used_space = add_control("Kick Bot", true, nil, used_space, function() engine.execute_cmd("kick " .. ply:get_name()) end)
-                            used_space = add_control("Kill Bot", true, nil, used_space, function() engine.execute_cmd("kill " .. ply:get_name()) end)
-                        end
-                    end
-                    
-                    used_space.y = used_space.y + text_size.y + 4
                 end
+                
+                used_space.y = used_space.y + text_size.y + 4
             end
-
-            player_list.scroll_max = used_space
         end
+
+        player_list.scroll_max = used_space
     end
 end
 
@@ -1302,6 +1401,74 @@ local logging = {} logging.__index = logging
 logging.control = menu.add_multi_selection("Logs", "Logged Events", { "Damage", "Bomb", "Item Pickup", "Votes" })
 logging.functions = { damage = 1, bomb = 2, item_pickup = 3, votes = 4 }
 menu.set_group_column("Logs", 1)
+
+callbacks.add_event("player_hurt", function(ctx)
+    if (ctx.userid and type(ctx.userid) == "number") then
+        local ent, attacker = entity_list.get_player_from_userid(ctx.userid), entity_list.get_player_from_userid(ctx.attacker)
+
+        if (ent and ent:is_player() and attacker and attacker:is_player()) then
+            local name, damage = ent:get_name(), e.dmg_health
+
+            if (name and damage and logging.control:get(logging.functions.damage)) then
+                if (health > 0) then
+                    notification.add("Hurt", "You hit " .. name .. " for " .. damage .. " health.", 3.5)
+                else
+                    notification.add("Killed", "You killed " .. name .. ".", 5)
+                end
+            end
+        end
+    end
+end)
+
+callbacks.add_event("bomb_planted", function(ctx)
+    if (ctx.userid and type(ctx.userid) == "number") then
+        local ent = entity_list.get_player_from_userid(ctx.userid)
+
+        if (ent and ent:is_player() and logging.control:get(logging.functions.bomb)) then
+            notification.add("Planted", ent:get_name() .. " planted the bomb.", 5)
+        end
+    end
+end)
+
+callbacks.add_event("bomb_defused", function(ctx)
+    if (ctx.userid and type(ctx.userid) == "number") then
+        local ent = entity_list.get_player_from_userid(ctx.userid)
+
+        if (ent and ent:is_player() and logging.control:get(logging.functions.bomb)) then
+            notification.add("Defused", ent:get_name() .. " defused the bomb.", 5)
+        end
+    end
+end)
+
+callbacks.add_event("item_pickup", function(ctx)
+    if (ctx.userid and type(ctx.userid) == "number") then
+        local ent = entity_list.get_player_from_userid(ctx.userid)
+
+        if (ent and ent:is_player() and local_player and local_player:is_player() and ent == local_player) then
+            if (logging.control:get(logging.functions.item_pickup)) then
+                notification.add("Picked Up", "You just picked up " .. e.item .. ".", 5)
+            end
+        end
+    end
+end)
+
+callbacks.add_event("vote_cast", function(ctx)
+    if (ctx.userid and type(ctx.userid) == "number") then
+        local ent = entity_list.get_player_from_userid(ctx.userid)
+
+        if (ent and ent:is_player()) then
+            if (logging.control:get(logging.functions.item_pickup)) then
+                if (logging.control:get(logging.functions.votes)) then
+                    if (e.vote_option == 0) then
+                        notification.add("Vote", ent:get_name() ..  "Just voted YES in a vote.", 7.5)
+                    else
+                        notification.add("Vote", ent:get_name() ..  "Just voted NO in a vote.", 7.5)
+                    end
+                end
+            end
+        end
+    end
+end)
 
 --[[
     Clantag Functions
@@ -1393,7 +1560,7 @@ api_dump.dump = function(tbl, ind)
     end
 end
 
-menu.add_button("General", "Dump API",function() api_dump.dump(_G, "") end)
+menu.add_button("General", "Dump API", function() api_dump.dump(_G, "") end)
 
 --[[
     Ragebot FOV
@@ -1404,6 +1571,10 @@ local rage_fov = {
     display = menu.add_checkbox("General", "FOV Flag", false),
 }
 menu.set_group_column("Ragebot", 2)
+
+if (rage_fov.control:get() == 0) then
+    rage_fov.control:set(180)
+end
 
 rage_fov.run_player_selection = function(ctx)
     local players = entity_list.get_players(true)
@@ -1444,8 +1615,8 @@ end
 --]]
 
 local jojosiwa_aa = {
-    control = menu.add_checkbox("Anti-Aim", "Jojosiwayaw Toggle", false),
-    yaw = menu.add_slider("Anti-Aim", "Jojosiwayaw Yaw", -180, 180),
+    control = menu.add_checkbox("Anti-Aim", "Extended Extended Angles", false),
+    yaw = menu.add_slider("Anti-Aim", "Yaw", -180, 180),
     flip = menu.add_text("Anti-Aim", "Invert Side"),
     init = { initialized = false, yaw_base = 0, yaw_add = 0, extended_offset, extended_type },
 }
@@ -1453,28 +1624,26 @@ menu.set_group_column("Anti-Aim", 2)
 
 jojosiwa_aa.flip_keybind = jojosiwa_aa.flip:add_keybind("Penis")
 
-if (global.whitelist.whitelisted) then
-    jojosiwa_aa.run_setup_command = function()
-        if (local_player and local_player:is_player() and local_player:is_alive()) then
-            if (jojosiwa_aa.control:get()) then
-                if (not jojosiwa_aa.init.initialized) then
-                    jojosiwa_aa.init = { initialized = true, yaw_base = global.window_references.yaw_base:get(), yaw_add = global.window_references.yaw_add:get(),
-                                        extended_type = global.window_references.extended_type:get(), extended_offset = global.window_references.extended_offset:get() }
-                end
+jojosiwa_aa.run_setup_command = function()
+    if (local_player and local_player:is_player() and local_player:is_alive()) then
+        if (jojosiwa_aa.control:get()) then
+            if (not jojosiwa_aa.init.initialized) then
+                jojosiwa_aa.init = { initialized = true, yaw_base = global.window_references.yaw_base:get(), yaw_add = global.window_references.yaw_add:get(),
+                                    extended_type = global.window_references.extended_type:get(), extended_offset = global.window_references.extended_offset:get() }
+            end
 
-                global.window_references.yaw_base:set(2)
-                global.window_references.yaw_add:set(jojosiwa_aa.flip_keybind:get() and 90 or -90)
-                global.window_references.extended_type:set(1)
-                global.window_references.extended_offset:set(jojosiwa_aa.yaw:get())
-            else
-                if (jojosiwa_aa.init.initialized) then
-                    jojosiwa_aa.init.initialized = false
-        
-                    global.window_references.yaw_base:set(jojosiwa_aa.init.yaw_base)
-                    global.window_references.yaw_add:set(jojosiwa_aa.init.yaw_add)
-                    global.window_references.extended_type:set(jojosiwa_aa.init.extended_type)
-                    global.window_references.extended_offset:set(jojosiwa_aa.init.extended_offset)
-                end
+            global.window_references.yaw_base:set(2)
+            global.window_references.yaw_add:set(jojosiwa_aa.flip_keybind:get() and 90 or -90)
+            global.window_references.extended_type:set(1)
+            global.window_references.extended_offset:set(jojosiwa_aa.yaw:get())
+        else
+            if (jojosiwa_aa.init.initialized) then
+                jojosiwa_aa.init.initialized = false
+    
+                global.window_references.yaw_base:set(jojosiwa_aa.init.yaw_base)
+                global.window_references.yaw_add:set(jojosiwa_aa.init.yaw_add)
+                global.window_references.extended_type:set(jojosiwa_aa.init.extended_type)
+                global.window_references.extended_offset:set(jojosiwa_aa.init.extended_offset)
             end
         end
     end
@@ -1511,7 +1680,7 @@ local ad_removal = {
     }
 }
 
-ad_removal.join_match = function()
+callbacks.add_event("player_connect_full", function()
     if (ad_removal.control:get()) then
         local removed_materials = 0
 
@@ -1526,7 +1695,7 @@ ad_removal.join_match = function()
 
         notification.add("Materials", "Removed " .. removed_materials .. " material advertisements.", 2.5)
     end
-end
+end)
 
 --[[
     Rainbow HUD
@@ -1560,145 +1729,143 @@ end
 --]]
 
 local legitbot = {}
-if (global.whitelist.whitelisted) then
-    legitbot = {
-        enabled = menu.add_checkbox("Legitbot", "Master Toggle", false),
-        on_key = menu.add_checkbox("Legitbot", "Fire on Key", true),
-        visible_check = menu.add_checkbox("Legitbot", "Visible Check", true),
-        hitbox_selection = menu.add_multi_selection("Legitbot", "Hitboxes", { "Head", "Body", "Pelvis" }),
-        hitbox_priority = menu.add_selection("Legitbot", "Hitboxes", { "Nearest", "Head", "Body", "Pelvis" }),
-        minimum_damage = menu.add_slider("Legitbot", "Minimum Damage", 0, 100, 1, 0, "hp"),
-        fov = menu.add_slider("Legitbot", "FOV", 0, 45, 0.1, 1, "°"),
-        smoothing = menu.add_slider("Legitbot", "Smoothing", 0, 100, 1, 0, "%"),
-        smoothing_type = menu.add_selection("Legitbot", "Smoothing Type", { "Linear", "Accelerating" }),
-        retarget_time = menu.add_slider("Legitbot", "Retarget Time", 0, 2000, 50, 0, "ms"),
-        anti_recoil = menu.add_checkbox("Legitbot", "Anti-Recoil", false),
-        anti_recoil_pitch = menu.add_slider("Legitbot", "Anti-Recoil Pitch", 0, 100, 1, 0, "%"),
-        anti_recoil_yaw = menu.add_slider("Legitbot", "Anti-Recoil Yaw", 0, 100, 1, 0, "%"),
-    }
+legitbot = {
+    enabled = menu.add_checkbox("Legitbot", "Master Toggle", false),
+    on_key = menu.add_checkbox("Legitbot", "Fire on Key", true),
+    visible_check = menu.add_checkbox("Legitbot", "Visible Check", true),
+    hitbox_selection = menu.add_multi_selection("Legitbot", "Hitboxes", { "Head", "Body", "Pelvis" }),
+    hitbox_priority = menu.add_selection("Legitbot", "Hitboxes", { "Nearest", "Head", "Body", "Pelvis" }),
+    minimum_damage = menu.add_slider("Legitbot", "Minimum Damage", 0, 100, 1, 0, "hp"),
+    fov = menu.add_slider("Legitbot", "FOV", 0, 45, 0.1, 1, "°"),
+    smoothing = menu.add_slider("Legitbot", "Smoothing", 0, 100, 1, 0, "%"),
+    smoothing_type = menu.add_selection("Legitbot", "Smoothing Type", { "Linear", "Accelerating" }),
+    retarget_time = menu.add_slider("Legitbot", "Retarget Time", 0, 2000, 50, 0, "ms"),
+    anti_recoil = menu.add_checkbox("Legitbot", "Anti-Recoil", false),
+    anti_recoil_pitch = menu.add_slider("Legitbot", "Anti-Recoil Pitch", 0, 100, 1, 0, "%"),
+    anti_recoil_yaw = menu.add_slider("Legitbot", "Anti-Recoil Yaw", 0, 100, 1, 0, "%"),
+}
 
-    local hotkey = legitbot.on_key:add_keybind("Aimbot Key")
-    menu.set_group_column("Legitbot", 2)
+local hotkey = legitbot.on_key:add_keybind("Aimbot Key")
+menu.set_group_column("Legitbot", 2)
 
-    legitbot.hitbox_enum = {
-        { name = "Head", enum = e_hitboxes.HEAD },
-        { name = "Body", enum = e_hitboxes.BODY },
-        { name = "Pelvis", enum = e_hitboxes.PELVIS },
-    }
+legitbot.hitbox_enum = {
+    { name = "Head", enum = e_hitboxes.HEAD },
+    { name = "Body", enum = e_hitboxes.BODY },
+    { name = "Pelvis", enum = e_hitboxes.PELVIS },
+}
 
-    legitbot.target = { target_time = 0, entity = nil }
+legitbot.target = { target_time = 0, entity = nil }
 
-    legitbot.run_target_selection = function(cmd)
-        local enemies, best_fov, hitboxes, visible = entity_list.get_players(true), { ent = nil, fov = 6969 }, legitbot.hitbox_selection:get_items(), legitbot.visible_check:get()
-        local priority, max_fov, retarget, minimum_damage = legitbot.hitbox_priority:get(), legitbot.fov:get(), legitbot.retarget_time:get(), legitbot.minimum_damage:get()
+legitbot.run_target_selection = function(cmd)
+    local enemies, best_fov, hitboxes, visible = entity_list.get_players(true), { ent = nil, fov = 6969 }, legitbot.hitbox_selection:get_items(), legitbot.visible_check:get()
+    local priority, max_fov, retarget, minimum_damage = legitbot.hitbox_priority:get(), legitbot.fov:get(), legitbot.retarget_time:get(), legitbot.minimum_damage:get()
 
-        if (global_vars.real_time() - legitbot.target.target_time > retarget / 1000) then
-            for _, ply in pairs(enemies) do
-                if (ply:is_player() and ply:is_alive() and not ply:is_dormant()) then
-                    for i = 1, #legitbot.hitbox_enum do
-                        local hitbox_pos = ply:get_hitbox_pos(legitbot.hitbox_enum[i].enum)
-                        local fov = engine.get_local_fov(ply, hitbox_pos)
-                        local bullet_trace = trace.bullet(local_player:get_eye_position(), hitbox_pos, local_player, ply)
-
-                        if (bullet_trace.damage >= minimum_damage and bullet_trace.damage > 0) then
-                            if (not visible or (visible and bullet_trace.pen_count <= 0)) then
-                                if (fov <= max_fov) then
-                                    if (best_fov.fov > fov) then
-                                        best_fov.fov, best_fov.ent, legitbot.target.target_time, legitbot.target.entity = fov, ply, global_vars.real_time(), ply
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        else
-            best_fov.ent = legitbot.target.entity
-        end
-
-        local best_bone = { pos = nil, fov = 6969, enum = 0 }
-
-        if (best_fov.ent and best_fov.ent:is_player()) then
-            if (priority ~= 1) then
-                local bone_pos = best_fov.ent:get_hitbox_pos(legitbot.hitbox_enum[priority - 1].enum)
-                local fov = engine.get_local_fov(best_fov.ent, bone_pos)
-                local bullet_trace = trace.bullet(local_player:get_eye_position(), bone_pos, local_player, best_fov.ent)
-                
-                if (bullet_trace.damage >= minimum_damage and bullet_trace.damage > 0) then
-                    if (not visible or (visible and bullet_trace.pen_count <= 0)) then
-                        if (fov <= max_fov) then
-                            best_bone.fov, best_bone.pos, best_bone.enum = fov, bone_pos, i
-                            goto hop
-                        end
-                    end
-                end
-            end
-
-            function contains_hitbox(hitboxes, hitbox)
-                for i = 1, #hitboxes do
-                    if (hitboxes[i] == hitbox) then
-                        if (legitbot.hitbox_selection:get(i)) then
-                            return true
-                        end
-                    end
-                end
-
-                return false
-            end
-
-            for i = 1, #legitbot.hitbox_enum do
-                if (contains_hitbox(hitboxes, legitbot.hitbox_enum[i].name)) then
-                    local bone_pos = best_fov.ent:get_hitbox_pos(legitbot.hitbox_enum[i].enum)
-                    local fov = engine.get_local_fov(best_fov.ent, bone_pos)
-                    local bullet_trace = trace.bullet(local_player:get_eye_position(), bone_pos, local_player, best_fov.ent)
+    if (global_vars.real_time() - legitbot.target.target_time > retarget / 1000) then
+        for _, ply in pairs(enemies) do
+            if (ply:is_player() and ply:is_alive() and not ply:is_dormant()) then
+                for i = 1, #legitbot.hitbox_enum do
+                    local hitbox_pos = ply:get_hitbox_pos(legitbot.hitbox_enum[i].enum)
+                    local fov = engine.get_local_fov(ply, hitbox_pos)
+                    local bullet_trace = trace.bullet(local_player:get_eye_position(), hitbox_pos, local_player, ply)
 
                     if (bullet_trace.damage >= minimum_damage and bullet_trace.damage > 0) then
                         if (not visible or (visible and bullet_trace.pen_count <= 0)) then
                             if (fov <= max_fov) then
-                                if (best_bone.fov > fov) then
-                                    best_bone.fov, best_bone.pos, best_bone.enum = fov, bone_pos, i
+                                if (best_fov.fov > fov) then
+                                    best_fov.fov, best_fov.ent, legitbot.target.target_time, legitbot.target.entity = fov, ply, global_vars.real_time(), ply
                                 end
                             end
                         end
                     end
                 end
             end
-
-            ::hop::
-
-            if (best_bone.enum and best_bone.pos and best_bone.fov and best_fov.fov and best_fov.ent) then
-                return { bone = best_bone.enum, pos = best_bone.pos, bone_fov = best_bone.fov, player_fov = best_fov.fov, entity = best_fov.ent }
-            end
         end
+    else
+        best_fov.ent = legitbot.target.entity
     end
 
-    legitbot.run = function(cmd)
-        if (legitbot.enabled:get() and (not legitbot.on_key:get() or (legitbot.on_key:get() and hotkey:get()))) then
-            local target = legitbot.run_target_selection(cmd)
+    local best_bone = { pos = nil, fov = 6969, enum = 0 }
 
-            if (target and target.entity and target.entity:is_player() and target.entity:is_alive()) then
-                local local_head = local_player:get_eye_position()
-                local aim_angle = target.pos:to_angle(local_head)
-
-                local punch_angle = local_player:get_prop("m_aimPunchAngle")
-                punch_angle = angle_t(punch_angle.x * (legitbot.anti_recoil_pitch:get() / 100) * 2, punch_angle.y * (legitbot.anti_recoil_pitch:get() / 100) * 2, 0)
-
-                local relative_angle = cmd.viewangles - (legitbot.anti_recoil:get() == true and (aim_angle - punch_angle):normalize() or aim_angle:normalize())
-                local angle = angle_t(relative_angle.x / relative_angle:length(), relative_angle.y / relative_angle:length(), 0)
-
-                if (legitbot.smoothing_type:get() == 1) then
-                    angle = angle_t(angle.x * (1 - (legitbot.smoothing:get() / 100)), angle.y * (1 - (legitbot.smoothing:get() / 100)), 0)
-                else
-                    angle = angle_t(angle.x / legitbot.smoothing:get() / (target.bone_fov / legitbot.fov:get()), angle.y / legitbot.smoothing:get() / (target.bone_fov / legitbot.fov:get()), 0)
+    if (best_fov.ent and best_fov.ent:is_player()) then
+        if (priority ~= 1) then
+            local bone_pos = best_fov.ent:get_hitbox_pos(legitbot.hitbox_enum[priority - 1].enum)
+            local fov = engine.get_local_fov(best_fov.ent, bone_pos)
+            local bullet_trace = trace.bullet(local_player:get_eye_position(), bone_pos, local_player, best_fov.ent)
+            
+            if (bullet_trace.damage >= minimum_damage and bullet_trace.damage > 0) then
+                if (not visible or (visible and bullet_trace.pen_count <= 0)) then
+                    if (fov <= max_fov) then
+                        best_bone.fov, best_bone.pos, best_bone.enum = fov, bone_pos, i
+                        goto hop
+                    end
                 end
+            end
+        end
 
-                if (angle:length() > relative_angle:length()) then
-                    angle = relative_angle
+        function contains_hitbox(hitboxes, hitbox)
+            for i = 1, #hitboxes do
+                if (hitboxes[i] == hitbox) then
+                    if (legitbot.hitbox_selection:get(i)) then
+                        return true
+                    end
                 end
+            end
 
-                if (angle.x ~= INF and angle.y ~= INF and angle.x == angle.x and angle.y == angle.y) then
-                    engine.set_view_angles((cmd.viewangles - angle):normalize())
+            return false
+        end
+
+        for i = 1, #legitbot.hitbox_enum do
+            if (contains_hitbox(hitboxes, legitbot.hitbox_enum[i].name)) then
+                local bone_pos = best_fov.ent:get_hitbox_pos(legitbot.hitbox_enum[i].enum)
+                local fov = engine.get_local_fov(best_fov.ent, bone_pos)
+                local bullet_trace = trace.bullet(local_player:get_eye_position(), bone_pos, local_player, best_fov.ent)
+
+                if (bullet_trace.damage >= minimum_damage and bullet_trace.damage > 0) then
+                    if (not visible or (visible and bullet_trace.pen_count <= 0)) then
+                        if (fov <= max_fov) then
+                            if (best_bone.fov > fov) then
+                                best_bone.fov, best_bone.pos, best_bone.enum = fov, bone_pos, i
+                            end
+                        end
+                    end
                 end
+            end
+        end
+
+        ::hop::
+
+        if (best_bone.enum and best_bone.pos and best_bone.fov and best_fov.fov and best_fov.ent) then
+            return { bone = best_bone.enum, pos = best_bone.pos, bone_fov = best_bone.fov, player_fov = best_fov.fov, entity = best_fov.ent }
+        end
+    end
+end
+
+legitbot.run = function(cmd)
+    if (legitbot.enabled:get() and (not legitbot.on_key:get() or (legitbot.on_key:get() and hotkey:get()))) then
+        local target = legitbot.run_target_selection(cmd)
+
+        if (target and target.entity and target.entity:is_player() and target.entity:is_alive()) then
+            local local_head = local_player:get_eye_position()
+            local aim_angle = target.pos:to_angle(local_head)
+
+            local punch_angle = local_player:get_prop("m_aimPunchAngle")
+            punch_angle = angle_t(punch_angle.x * (legitbot.anti_recoil_pitch:get() / 100) * 2, punch_angle.y * (legitbot.anti_recoil_pitch:get() / 100) * 2, 0)
+
+            local relative_angle = cmd.viewangles - (legitbot.anti_recoil:get() == true and (aim_angle - punch_angle):normalize() or aim_angle:normalize())
+            local angle = angle_t(relative_angle.x / relative_angle:length(), relative_angle.y / relative_angle:length(), 0)
+
+            if (legitbot.smoothing_type:get() == 1) then
+                angle = angle_t(angle.x * (1 - (legitbot.smoothing:get() / 100)), angle.y * (1 - (legitbot.smoothing:get() / 100)), 0)
+            else
+                angle = angle_t(angle.x / legitbot.smoothing:get() / (target.bone_fov / legitbot.fov:get()), angle.y / legitbot.smoothing:get() / (target.bone_fov / legitbot.fov:get()), 0)
+            end
+
+            if (angle:length() > relative_angle:length()) then
+                angle = relative_angle
+            end
+
+            if (angle.x ~= INF and angle.y ~= INF and angle.x == angle.x and angle.y == angle.y) then
+                engine.set_view_angles((cmd.viewangles - angle):normalize())
             end
         end
     end
@@ -1707,11 +1874,6 @@ end
 --[[
     Callbacks
 --]]
-
-if (global.whitelist.whitelisted) then
-    notification.add("Whitelisted User", "Welcome " .. user.name .. ", you are included in the jojosiwa whitelist and have access to all features.", 10)
-    client.log(global.color, "jojosiwa.lua | ", color_t(255, 255, 255), "Welcome " .. user.name .. ", you are included in the jojosiwa whitelist and have access to all features.")
-end
 
 callbacks.add(e_callbacks.PAINT, function()
     local_player, local_player_or_spectating, screen_size = entity_list.get_local_player(), entity_list.get_local_player_or_spectating(), render.get_screen_size()
@@ -1734,7 +1896,7 @@ callbacks.add(e_callbacks.PAINT, function()
 
     if (hud.override_hud:get()) then cvars.cl_draw_only_deathnotices:set_int(1) else cvars.cl_draw_only_deathnotices:set_int(0) end
 
-    if (global.whitelist.whitelisted) then window.window_list[hud.windows.player_list].flags.FL_NODRAW = not menu.is_open() end
+    window.window_list[hud.windows.player_list].flags.FL_NODRAW = not menu.is_open()
 
     if (not local_player or not local_player_or_spectating) then
         player_list.table = {}
@@ -1744,9 +1906,9 @@ end)
 
 callbacks.add(e_callbacks.SETUP_COMMAND, function(cmd)
     clantag.run_setup_commands()
-    if (global.whitelist.whitelisted) then jojosiwa_aa.run_setup_command() end
+    jojosiwa_aa.run_setup_command()
     anti_afk.run_setup_command(cmd)
-    if (global.whitelist.whitelisted) then legitbot.run(cmd) end
+    legitbot.run(cmd)
 
     if (hud.chatbox.chatting ~= 0) then
         cmd.move.x, cmd.move.y = 0, 0
@@ -1754,102 +1916,11 @@ callbacks.add(e_callbacks.SETUP_COMMAND, function(cmd)
     end
 end)
 
-callbacks.add(e_callbacks.RUN_COMMAND, function(cmd)
-    
-end)
-
 callbacks.add(e_callbacks.SHUTDOWN, function()
     clantag.run_shutdown()
 end)
 
 callbacks.add(e_callbacks.DRAW_WATERMARK, function(ctx) if (hud.override_primordial:get()) then return "" else return ctx end end)
-
-callbacks.add(e_callbacks.EVENT, function(e)
-    if (e.userid and type(e.userid) == "number") then
-        local ent = entity_list.get_player_from_userid(e.userid)
-
-        if (ent and ent:is_player()) then
-            if (e.name == "player_say" or e.name == "player_chat") then
-                local dead, text, teamchat, name, team = not ent:is_alive(), e.text, e.teamonly, ent:get_name(), ent:get_prop("m_iTeamNum")
-
-                if (#hud.chatbox.logs >= 6) then
-                    for i = 1, #hud.chatbox.logs - 5 do
-                        table.remove(hud.chatbox.logs, 1)
-                    end
-                end
-            
-                hud.chatbox.last_message = client.get_unix_time()
-                table.insert(hud.chatbox.logs, { text = text, dead = dead, teamchat = teamchat, team = team, name = name})
-
-                if (ent ~= local_player) then
-                    local contains, ind = player_list.contains(ent)
-
-                    if (contains and player_list.table[ind].checks.repeat_chat) then
-                        player_list.run_repeat_text(e.text)
-                    end
-                end
-            elseif (e.name == "player_hurt") then
-                local attacker, name, damage, health = entity_list.get_player_from_userid(e.attacker), "", e.dmg_health, e.health
-
-                if (damage and health and local_player and local_player:is_player() and attacker == local_player) then
-                    if (not ent:is_enemy()) then
-                        hud.team_damage.damage = hud.team_damage.damage + damage
-                    end
-
-                    if (logging.control:get(logging.functions.damage)) then
-                        name = ent:get_name()
-
-                        if (health > 0) then
-                            notification.add("Hurt", "You hit " .. name .. " for " .. damage .. " health.", 3.5)
-                        else
-                            notification.add("Killed", "You killed " .. name .. ".", 5)
-                        end
-                    end
-                end
-            elseif (e.name == "player_death") then
-                local attacker = entity_list.get_player_from_userid(e.attacker)
-
-                if (local_player and local_player:is_player() and attacker == local_player) then
-                    if (not ent:is_enemy()) then
-                        hud.team_damage.kills = hud.team_damage.kills + 1
-                    end
-                end
-            elseif (e.name == "player_footstep") then
-                if (ent == local_player) then
-                    hud.steps.count = hud.steps.count + 1
-                end
-            elseif (e.name == "bomb_planted") then
-                if (logging.control:get(logging.functions.bomb) and local_player and local_player:is_player()) then
-                    local name = ent:get_name()
-                    notification.add("Planted", name .. " planted the bomb.", 5)
-                end
-            elseif (e.name == "bomb_defused") then
-                if (logging.control:get(logging.functions.bomb) and local_player and local_player:is_player()) then
-                    local name = ent:get_name()
-                    notification.add("Defused", name .. " defused the bomb.", 5)
-                end
-            elseif (e.name == "item_pickup") then
-                local item = e.item
-
-                if (logging.control:get(logging.functions.item_pickup) and local_player and local_player:is_player() and ent == local_player) then
-                    notification.add("Picked Up", "You just picked up " .. item .. ".", 5)
-                end
-            elseif (e.name == "vote_cast") then
-                local name = ent:get_name()
-
-                if (logging.control:get(logging.functions.votes)) then
-                    if (e.vote_option == 0) then
-                        notification.add("Vote", name ..  "Just voted YES in a vote.", 7.5)
-                    else
-                        notification.add("Vote", name ..  "Just voted NO in a vote.", 7.5)
-                    end
-                end
-            elseif (e.name == "player_connect_full") then
-                ad_removal.join_match()
-            end
-        end
-    end
-end)
 
 callbacks.add(e_callbacks.TARGET_SELECTION, function(ctx, cmd, unpredicted_data)
     for i = 1, #player_list.table do
