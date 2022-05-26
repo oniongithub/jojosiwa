@@ -28,14 +28,7 @@ global.window_references = {
 
 global.color = global.window_references.menu_accent_2:get()
 global.log = function(...) client.log(color_t(237, 135, 255), "[jojosiwa.lua]", color_t(255, 255, 255), ...) end
-
-local e_keybind_modes = {
-    TOGGLE = 0,
-    HOLD_ON = 1,
-    HOLD_OFF = 2,
-    ALWAYS_ON = 3,
-    ALWAYS_OFF = 4
-}
+local e_keybind_modes = { TOGGLE = 0, HOLD_ON = 1, HOLD_OFF = 2, ALWAYS_ON = 3, ALWAYS_OFF = 4 }
 
 --[[
     Misc Functions
@@ -74,6 +67,7 @@ end
 function angle_t:to_vector()
     local pitch_rad, yaw_rad = (math.pi / 180) * self.x, (math.pi / 180) * self.y
     local sp, cp, sy, cy = math.sin(pitch_rad), math.cos(pitch_rad), math.sin(yaw_rad), math.cos(yaw_rad)
+
     return vec3_t(cp * cy, cp * sy, -sp)
 end
 
@@ -138,9 +132,7 @@ function vec3_t:dot(vec)
 end
 
 function vec3_t:to_angle(vec2)
-    local x = vec2.x - self.x
-    local z = vec2.y - self.y
-    local y = self.z - vec2.z
+    local x, y, z = vec2.x - self.x, self.z - vec2.z, vec2.y - self.y
 
     return angle_t(-math.deg(math.atan2(y, math.sqrt(x * x + z * z))), math.deg(math.atan2(z, x)) + 180, 0)
 end
@@ -300,28 +292,29 @@ end
     Event Callbacks Library
 --]]
 
-local event_library, event_library_id = { }, 0
+local event_lib = {} event_lib.__index = {}
+event_lib.tab, event_lib.id = {}, 0
 
 callbacks.add_event = function(event, fn)
-    event_library_id = event_library_id + 1
+    event_lib.id = event_lib.id + 1
 
-    for i = 1, #event_library do
-        if (event_library[i].event == event) then
-            table.insert(event_library[i].functions, { id = event_library_id, fn = fn })
+    for i = 1, #event_lib.tab do
+        if (event_lib.tab[i].event == event) then
+            table.insert(event_lib.tab[i].functions, { id = event_lib.id, fn = fn })
 
-            return event_library_id
+            return event_lib.id
         end
     end
 
-    table.insert(event_library, { event = event, functions = { { id = event_library_id, fn = fn } } })
-    return event_library_id
+    table.insert(event_lib.tab, { event = event, functions = { { id = event_lib.id, fn = fn } } })
+    return event_lib.id
 end
 
 callbacks.remove_event = function(id)
-    for i = 1, #event_library do
-        for f = 1, #event_library[i].functions do
-            if (event_library[i].functions[f].id == id) then
-                table.remove(event_library[i].functions, f)
+    for i = 1, #event_lib.tab do
+        for f = 1, #event_lib.tab[i].functions do
+            if (event_lib.tab[i].functions[f].id == id) then
+                table.remove(event_lib.tab[i].functions, f)
                 return true
             end
         end
@@ -331,10 +324,10 @@ callbacks.remove_event = function(id)
 end
 
 callbacks.add(e_callbacks.EVENT, function(event)
-    for i = 1, #event_library do
-        if (event_library[i].event == event.name) then
-            for f = 1, #event_library[i].functions do
-                event_library[i].functions[f].fn(event)
+    for i = 1, #event_lib.tab do
+        if (event_lib.tab[i].event == event.name) then
+            for f = 1, #event_lib.tab[i].functions do
+                event_lib.tab[i].functions[f].fn(event)
             end
         end
     end
@@ -344,7 +337,7 @@ end)
     Window Library
 --]]
 
-local window = {} window.__index = window
+local window = {} window.__index = {} window.window_list = {}
 
 window.fonts = {
     segoe_ui_13 = render.create_font("Segoe UI", 13, 100, e_font_flags.ANTIALIAS),
@@ -354,8 +347,6 @@ window.fonts = {
 window.flags = {
     FL_NODRAW = 1, FL_NOMOVE = 2, FL_NOTITLE = 3, FL_RESIZE_H = 4, FL_RESIZE_V = 5,
 }
-
-window.window_list = {}
 
 function window.add_window(size, name, control, ...)
     if (not size) then return end
@@ -644,18 +635,9 @@ hud.keys = { {60, "/", "?"}, {65, " "}, {1, "0", ")"}, {2, "1", "!"}, {3, "2", "
 
 hud.toggles = {
     notifications = menu.add_checkbox("HUD", "Notifications", true),
-    keybind = 1,
-    spectator = 2,
-    watermark = 3,
-    information = 4,
-    health = 5,
-    weapon = 6,
-    score = 7,
-    chat = 8,
-    radar = 9,
-    steps = 10,
-    team_damage = 11,
-    player_list = 12,
+    keybind = 1, spectator = 2, watermark = 3, information = 4,
+    health = 5, weapon = 6, score = 7, chat = 8, radar = 9,
+    steps = 10, team_damage = 11, player_list = 12,
 }
 
 hud.override_hud = menu.add_checkbox("HUD", "Override HUD", false)
@@ -1234,12 +1216,12 @@ player_list.contains = function(ply)
     return false
 end
 
-player_list.repeat_text = {
-    blacklist = { "rs", "rank", "top", "ban", "admin", "kick", "addban", "banip", "cancelvote",
-                            "cvar", "execcfg", "help", "map", "rcon", "reloadadmins", "unban", "who", "beacon",
-                            "burn", "chat", "csay", "gag", "hsay", "msay", "mute", "play", "psay", "rename",
-                            "resetcvar", "say", "silence", "slap", "slay", "tsay", "ungag", "unmute", "unsilence",
-                            "vote", "votealltalk", "voteban", "voteburn", "voteff", "votegravity", "votekick", "votemap", "voteslay" }
+player_list.repeat_blacklist = {
+    "rs", "rank", "top", "ban", "admin", "kick", "addban", "banip", "cancelvote",
+    "cvar", "execcfg", "help", "map", "rcon", "reloadadmins", "unban", "who", "beacon",
+    "burn", "chat", "csay", "gag", "hsay", "msay", "mute", "play", "psay", "rename",
+    "resetcvar", "say", "silence", "slap", "slay", "tsay", "ungag", "unmute", "unsilence",
+    "vote", "votealltalk", "voteban", "voteburn", "voteff", "votegravity", "votekick", "votemap", "voteslay"
 }
 
 function player_list.run_repeat_text(chat, ent)
@@ -1248,9 +1230,9 @@ function player_list.run_repeat_text(chat, ent)
         text = string.sub(text, 2, #text)
     end
 
-    for i = 1, #player_list.repeat_text.blacklist do
-        if (string.sub(text, 1, #player_list.repeat_text.blacklist[i]) == player_list.repeat_text.blacklist[i]) then
-            text = string.sub(text, #player_list.repeat_text.blacklist[i] + 1, #text)
+    for i = 1, #player_list.repeat_blacklist do
+        if (string.sub(text, 1, #player_list.repeat_blacklist[i]) == player_list.repeat_blacklist[i]) then
+            text = string.sub(text, #player_list.repeat_blacklist[i] + 1, #text)
         end
     end
 
