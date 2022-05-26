@@ -27,6 +27,7 @@ global.window_references = {
 }
 
 global.color = global.window_references.menu_accent_2:get()
+global.log = function(...) client.log(color_t(237, 135, 255), "[jojosiwa.lua]", color_t(255, 255, 255), ...) end
 
 local e_keybind_modes = {
     TOGGLE = 0,
@@ -675,24 +676,29 @@ hud.windows = {
     player_list = window.add_window(vec2_t(450, 300), "Player List", hud.toggles.player_list, window.flags.FL_RESIZE_H, window.flags.FL_RESIZE_V),
 }
 
-hud.context_control = menu.add_selection("HUD Controls", "Element Controls", {"None", "Watermark", "Spectators", "Keybinds"})
+hud.context_control = menu.add_selection("HUD Controls", "Element Controls", {"None", "Keybinds", "Spectators", "Watermark", "Information"})
 menu.add_separator("HUD Controls")
 
 hud.context_menus = {
-    context_strings = { "Watermark", "Spectators", "Keybinds" },
-    ["Watermark"] = {
-        menu.add_selection("HUD Controls", "Watermark Style", { "Minimal", "Default Style" }),
-        menu.add_multi_selection("HUD Controls", "Information", { "Cheat Name", "Username", "UID", "Ping", "FPS" }),
-    },
-    ["Spectators"] = {
-        menu.add_selection("HUD Controls", "Spectators Shown", { "Enemies", "Teammates", "Both" }),
-        menu.add_checkbox("HUD Controls", "Show Local", false),
-    },
+    context_strings = hud.context_control:get_items(),
     ["Keybinds"] = {
         menu.add_checkbox("HUD Controls", "Show Mode", false),
+    },
+    ["Spectators"] = {
+        menu.add_selection("HUD Controls", "Spectators Shown", { "All", "Enemies", "Teammates" }),
+        menu.add_checkbox("HUD Controls", "Show Local", false),
+    },
+    ["Watermark"] = {
+        menu.add_selection("HUD Controls", "Watermark Style", { "Minimal", "Default Style" }),
+        menu.add_multi_selection("HUD Controls", "Disabled Information", { "Cheat Name", "Username", "UID", "Ping", "FPS" }),
+        menu.add_selection("HUD Controls", "Snap Location", { "Top Right", "Top Left", "Bottom Right", "Bottom Left", "None" }),
+    },
+    ["Information"] = {
+        menu.add_multi_selection("HUD Controls", "Disabled Information", { "Desync", "Fakelag", "FPS", "Tickbase Charge" }),
     }
 }
 
+table.remove(hud.context_menus.context_strings, 1)
 hud.context_visiblity = function(name)
     if (not name) then name = "" end
 
@@ -1046,15 +1052,26 @@ window.window_list[hud.windows.watermark].draw_fn = function()
         if (text == "") then return "" else return " | " end
     end
 
-    local watermark_text = (hud.context_menus["Watermark"][2]:get(1) and "primordial" or "")
-    watermark_text = watermark_text .. (hud.context_menus["Watermark"][2]:get(2) and (watermark_add(watermark_text) .. user.name) or "")
-    watermark_text = watermark_text .. (hud.context_menus["Watermark"][2]:get(3) and (watermark_add(watermark_text) .. "uid " .. user.uid) or "")
-    watermark_text = watermark_text .. (hud.context_menus["Watermark"][2]:get(4) and (watermark_add(watermark_text) .. math.floor(engine.get_latency(e_latency_flows.OUTGOING) * 1000) .. "ms") or "")
-    watermark_text = watermark_text .. (hud.context_menus["Watermark"][2]:get(5) and (watermark_add(watermark_text) .. client.get_fps() .. " fps") or "")
+    local snap_location = hud.context_menus["Watermark"][3]:get()
+    local watermark_text = (not hud.context_menus["Watermark"][2]:get(1) and "primordial" or "")
+    watermark_text = watermark_text .. (not hud.context_menus["Watermark"][2]:get(2) and (watermark_add(watermark_text) .. user.name) or "")
+    watermark_text = watermark_text .. (not hud.context_menus["Watermark"][2]:get(3) and (watermark_add(watermark_text) .. "uid " .. user.uid) or "")
+    watermark_text = watermark_text .. (not hud.context_menus["Watermark"][2]:get(4) and (watermark_add(watermark_text) .. math.floor(engine.get_latency(e_latency_flows.OUTGOING) * 1000) .. "ms") or "")
+    watermark_text = watermark_text .. (not hud.context_menus["Watermark"][2]:get(5) and (watermark_add(watermark_text) .. client.get_fps() .. " fps") or "")
 
     local text_size = render.get_text_size(window.fonts.segoe_ui_13, watermark_text)
 
-    window.window_list[hud.windows.watermark].pos = vec2_t(screen_size.x - window.window_list[hud.windows.watermark].size.x - 8, 8)
+    window.window_list[hud.windows.watermark].flags.FL_NOMOVE = snap_location ~= 5
+
+    if (snap_location == 1) then
+        window.window_list[hud.windows.watermark].pos = vec2_t(screen_size.x - window.window_list[hud.windows.watermark].size.x - 8, 8)
+    elseif (snap_location == 2) then
+        window.window_list[hud.windows.watermark].pos = vec2_t(8, 8)
+    elseif (snap_location == 3) then
+        window.window_list[hud.windows.watermark].pos = vec2_t(screen_size.x - window.window_list[hud.windows.watermark].size.x - 8, screen_size.y - window.window_list[hud.windows.watermark].size.y - 8)
+    elseif (snap_location == 4) then
+        window.window_list[hud.windows.watermark].pos = vec2_t(8, screen_size.y - window.window_list[hud.windows.watermark].size.y - 8)
+    end
 
     if (hud.context_menus["Watermark"][1]:get() == 2) then
         window.window_list[hud.windows.watermark].size = vec2_t(16 + text_size.x, 16 + text_size.y)
@@ -1080,30 +1097,21 @@ window.window_list[hud.windows.information].draw_fn = function()
     
     render.push_clip(window.window_list[hud.windows.information].pos, window.window_list[hud.windows.information].size)
 
-    if (global.window_references.double_tap[2]:get() or global.window_references.hide_shots[2]:get()) then
+    if (not hud.context_menus["Information"][1]:get(4) and global.window_references.double_tap[2]:get() or global.window_references.hide_shots[2]:get()) then
         used_space = vec2_t(used_space.x, used_space.y + window.add_bar(used_space, "Tickbase Charge", hud.windows.information, exploits.get_charge() / exploits.get_max_charge()))
     end
 
-    if (global.window_references.anti_aim[2]:get()) then
+    if (not hud.context_menus["Information"][1]:get(1) and global.window_references.anti_aim[2]:get()) then
         used_space = vec2_t(used_space.x, used_space.y + window.add_bar(used_space, "Desync", hud.windows.information, math.abs(antiaim.get_real_angle() - antiaim.get_fake_angle()) / antiaim.get_max_desync_range()))
     end
 
-    if (global.window_references.fake_lag:get() > 0) then
+    if (not hud.context_menus["Information"][1]:get(2) and global.window_references.fake_lag:get() > 0) then
         used_space = vec2_t(used_space.x, used_space.y + window.add_bar(used_space, "Fakelag", hud.windows.information, engine.get_choked_commands() / global.window_references.fake_lag:get()))
     end
 
-    used_space = vec2_t(used_space.x, used_space.y + window.add_bar(used_space, "FPS", hud.windows.information, client.get_fps() / information.max_fps))
-
-    if (local_player and local_player:is_player() and local_player:is_alive()) then
-        local velocity_modifier = local_player:get_prop("m_flVelocityModifier")
-
-        if (velocity_modifier < 1) then
-            used_space = vec2_t(used_space.x, used_space.y + window.add_bar(used_space, "Slowdown", hud.windows.information, math.clamp(1 - velocity_modifier, 0, 1)))
-        end
-    end
+    if (not hud.context_menus["Information"][1]:get(3)) then used_space = vec2_t(used_space.x, used_space.y + window.add_bar(used_space, "FPS", hud.windows.information, client.get_fps() / information.max_fps)) end
 
     render.pop_clip()
-
     window.window_list[hud.windows.information].size = vec2_t(window.window_list[hud.windows.information].size.x, window.window_list[hud.windows.information].tab_height + used_space.y + 8)
 end
 
@@ -1124,8 +1132,8 @@ window.window_list[hud.windows.spectator].draw_fn = function()
                         local target_index, local_index = target:get_index(), cur_entity:get_index()
 
                         local shown = hud.context_menus["Spectators"][1]:get()
-                        if (shown == 1 and not ply:is_enemy()) then goto skip
-                        elseif (shown == 2 and ply:is_enemy()) then goto skip end
+                        if (shown == 2 and not ply:is_enemy()) then goto skip
+                        elseif (shown == 3 and ply:is_enemy()) then goto skip end
 
                         if (not hud.context_menus["Spectators"][2]:get() and ply == local_player) then goto skip end
 
@@ -1163,6 +1171,15 @@ local keybind = {
         { name = "[Toggle] ", enum = e_keybind_modes.TOGGLE },
         { name = "[Hold] ", enum = e_keybind_modes.HOLD_ON },
         { name = "[Always] ", enum = e_keybind_modes.ALWAYS_ON },
+    },
+    binds = {
+        { name = "Double Tap", control = global.window_references.double_tap },
+        { name = "Hide Shots", control = global.window_references.hide_shots },
+        { name = "Thirdperson", control = global.window_references.thirdperson },
+        { name = "Auto Peek", control = global.window_references.auto_peek },
+        { name = "Lean Resolver", control = global.window_references.body_lean },
+        { name = "Extended Angles", control = global.window_references.extended_angles },
+        { name = "Edge Jump", control = global.window_references.edge_jump },
     }
 }
 
@@ -1187,13 +1204,9 @@ window.window_list[hud.windows.keybind].draw_fn = function()
         return binds
     end
 
-    binds = has_bind(binds, "Double Tap", 2, global.window_references.double_tap, show_mode)
-    binds = has_bind(binds, "Hide Shots", 2, global.window_references.hide_shots, show_mode)
-    binds = has_bind(binds, "Thirdperson", 2, global.window_references.thirdperson, show_mode)
-    binds = has_bind(binds, "Auto Peek", 2, global.window_references.auto_peek, show_mode)
-    binds = has_bind(binds, "Body Lean Resolver", 2, global.window_references.body_lean, show_mode)
-    binds = has_bind(binds, "Extended Angles", 2, global.window_references.extended_angles, show_mode)
-    binds = has_bind(binds, "Edge Jump", 2, global.window_references.edge_jump, show_mode)
+    for i = 1, #keybind.binds do
+        binds = has_bind(binds, keybind.binds[i].name, keybind.binds[i].index == nil and 2 or keybind.binds[i].index, keybind.binds[i].control, show_mode)
+    end
 
     render.push_clip(window.window_list[hud.windows.keybind].pos, window.window_list[hud.windows.keybind].size)
 
@@ -1350,13 +1363,14 @@ window.window_list[hud.windows.player_list].draw_fn = function()
                 if (ply == selected_ent) then
                     local contained, ind = player_list.contains(ply)
                     if (not contained) then
-                        table.insert(player_list.table, {entity = ply, checks = { repeat_chat = false, priority = false, whitelist = false, baim = false, steal_clantag = false }})
+                        table.insert(player_list.table, {entity = ply, checks = { repeat_chat = false, priority = false, whitelist = false, baim = false, steal_clantag = false, killsay = false }})
                         ind = #player_list.table
                     end
 
                     used_space, player_list.table[ind].checks.whitelist = add_control("Whitelist", false, player_list.table[ind].checks.whitelist, used_space)
                     used_space, player_list.table[ind].checks.priority = add_control("Priority", false, player_list.table[ind].checks.priority, used_space)
                     used_space, player_list.table[ind].checks.baim = add_control("Force Bodyaim", false, player_list.table[ind].checks.baim, used_space)
+                    used_space, player_list.table[ind].checks.killsay = add_control("Killsay Target", false, player_list.table[ind].checks.killsay, used_space)
 
                     used_space = add_control("Steal Username", true, nil, used_space, function() cvars.name:set_string(ply:get_name()) end)
 
@@ -1406,10 +1420,10 @@ callbacks.add_event("player_hurt", function(ctx)
     if (ctx.userid and type(ctx.userid) == "number") then
         local ent, attacker = entity_list.get_player_from_userid(ctx.userid), entity_list.get_player_from_userid(ctx.attacker)
 
-        if (ent and ent:is_player() and attacker and attacker:is_player()) then
-            local name, damage = ent:get_name(), ctx.dmg_health
+        if (ent and ent:is_player() and attacker and attacker:is_player() and attacker == local_player) then
+            local name, damage, health = ent:get_name(), ctx.dmg_health, ctx.health
 
-            if (name and damage and logging.control:get(logging.functions.damage)) then
+            if (name and damage and health and logging.control:get(logging.functions.damage)) then
                 if (health > 0) then
                     notification.add("Hurt", "You hit " .. name .. " for " .. damage .. " health.", 3.5)
                 else
@@ -1872,6 +1886,79 @@ legitbot.run = function(cmd)
 end
 
 --[[
+    Aimbot Logs
+--]]
+
+local aim_logs = {
+    control = menu.add_checkbox("Logs", "Aimbot Logs", false),
+    log_in = menu.add_multi_selection("Logs", "Log Displays", { "Console", "Notification" }),
+    types = menu.add_multi_selection("Logs", "Logged", { "Hits", "Misses" }),
+}
+
+aim_logs.aimbot_miss = function(ctx)
+    if (aim_logs.control:get() and aim_logs.types:get(2)) then
+        local log_text = "ply = " .. ctx.player:get_name() .. " | r = " .. ctx.reason_string .. " | dmg = " .. ctx.aim_damage .. "hp | bt = " .. ctx.backtrack_ticks .. "t | hc = " .. ctx.aim_hitchance .. "% | safe = " .. tostring(ctx.aim_safepoint) .. "."
+    
+        if (aim_logs.log_in:get(1)) then
+            global.log(color_t(255, 0, 0), "[" .. ctx.id .. "]", color_t(255, 0, 0), "[Miss]", color_t(255, 255, 255), log_text)
+        end
+            
+        if (aim_logs.log_in:get(2)) then
+            notification.add("Miss", log_text, 3.5)
+        end
+    end
+end
+
+aim_logs.aimbot_hit = function(ctx)
+    if (aim_logs.control:get() and aim_logs.types:get(1)) then
+        local log_text = "ply = " .. ctx.player:get_name() .. " | dmg = " .. ctx.damage .. "hp | pred dmg = " .. ctx.aim_damage .. "hp | hc = " .. ctx.aim_hitchance .. "% | bt = " .. ctx.backtrack_ticks .. "t | safe = " .. tostring(ctx.aim_safepoint) .. "."
+    
+        if (aim_logs.log_in:get(1)) then
+            global.log(color_t(255, 0, 0), "[" .. ctx.id .. "]", color_t(0, 255, 0), "[Hit]", color_t(255, 255, 255), log_text)
+        end
+            
+        if (aim_logs.log_in:get(2)) then
+            notification.add("Hit", log_text, 5)
+        end
+    end
+end
+
+--[[
+    Killsay
+--]]
+
+local killsay = {
+    control = menu.add_selection("General", "Killsay", { "Disabled", "All", "Targetted" }),
+    messages = {
+        "1", "You suck.", "nice stevie wonder aim", "Missclick", "lick my sphincter", "*DEAD*", "imagine not using jojosiwa.lua",
+    }
+}
+
+callbacks.add_event("player_death", function(ctx)
+    if (killsay.control:get() ~= 1) then
+        if (ctx.userid and type(ctx.userid) == "number") then
+            local ent, attacker = entity_list.get_player_from_userid(ctx.userid), entity_list.get_player_from_userid(ctx.attacker)
+
+            if (ent and ent:is_player() and attacker and attacker:is_player()) then
+                if (local_player and local_player:is_player() and attacker == local_player) then
+                    if (killsay.control:get() == 3) then
+                        for i = 1, #player_list.table do
+                            if (player_list.table[i].entity and player_list.table[i].entity:is_player() and player_list.table[i].entity == ent) then
+                                if (player_list.table[i].checks.killsay) then
+                                    engine.execute_cmd("say " .. killsay.messages[math.random(1, #killsay.messages)])
+                                end
+                            end
+                        end
+                    else
+                        engine.execute_cmd("say " .. killsay.messages[math.random(1, #killsay.messages)])
+                    end
+                end
+            end
+        end
+    end
+end)
+
+--[[
     Callbacks
 --]]
 
@@ -1953,4 +2040,12 @@ end)
 
 callbacks.add(e_callbacks.PLAYER_ESP, function(ctx)
     rage_fov.run_esp(ctx)
+end)
+
+callbacks.add(e_callbacks.AIMBOT_HIT, function(ctx)
+    aim_logs.aimbot_hit(ctx)
+end)
+
+callbacks.add(e_callbacks.AIMBOT_MISS, function(ctx)
+    aim_logs.aimbot_miss(ctx)
 end)
