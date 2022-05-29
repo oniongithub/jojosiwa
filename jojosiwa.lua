@@ -6,6 +6,7 @@ local global = {} global.__index = {}
 
 local hud = {} hud.__index = hud
 hud.controls = menu.add_multi_selection("HUD", "HUD Elements", { "Keybinds", "Spectator List", "Watermark", "Information", "Health Info", "Weapon Info", "Scoreboard", "Chatbox", "Radar", "Step Counter", "Team Damage", "Player List" })
+hud.dpi_control, hud.dpi, hud.font_dpi = menu.add_slider("HUD", "DPI", -0.5, 1, 0.25, 2), 1
 local local_player, local_player_or_spectating, screen_size = entity_list.get_local_player(), entity_list.get_local_player_or_spectating(), render.get_screen_size()
 
 global.window_references = {
@@ -337,12 +338,15 @@ end)
     Window Library
 --]]
 
-local window = {} window.__index = {} window.window_list = {}
+local window = {} window.__index = {} window.window_list = {} window.font_dpi = hud.font_dpi
 
 window.fonts = {
-    segoe_ui_13 = render.create_font("Segoe UI", 13, 100, e_font_flags.ANTIALIAS),
-    segoe_ui_18 = render.create_font("Segoe UI", 18, 100, e_font_flags.ANTIALIAS)
+    segoe_ui_13 = {},
+    segoe_ui_18 = {},
 }
+
+for i = 1, 7 do table.insert(window.fonts.segoe_ui_13, render.create_font("Segoe UI", math.floor(13 * (1 + (-0.5 + (i - 1) * 0.25))), 100, e_font_flags.ANTIALIAS)) end
+for i = 1, 7 do table.insert(window.fonts.segoe_ui_18, render.create_font("Segoe UI", math.floor(18 * (1 + (-0.5 + (i - 1) * 0.25))), 100, e_font_flags.ANTIALIAS)) end
 
 window.flags = {
     FL_NODRAW = 1, FL_NOMOVE = 2, FL_NOTITLE = 3, FL_RESIZE_H = 4, FL_RESIZE_V = 5,
@@ -440,12 +444,12 @@ function window.run_paint(index)
     render.rect_filled(window.window_list[index].pos, window.window_list[index].size, color_t(25, 25, 25, 125), 6)
 
     if (not window.window_list[index].flags.FL_NOTITLE) then
-        local text_size = render.get_text_size(window.fonts.segoe_ui_18, window.window_list[index].name)
+        local text_size = render.get_text_size(window.fonts.segoe_ui_18[window.font_dpi], window.window_list[index].name)
         window.window_list[index].tab_height = text_size.y + 17
         render.rect_filled(window.window_list[index].pos, vec2_t(window.window_list[index].size.x, 8 + text_size.y), color_t(25, 25, 25, 255), 6)
         render.rect_filled(vec2_t(window.window_list[index].pos.x, window.window_list[index].pos.y + 6), vec2_t(window.window_list[index].size.x, 2 + text_size.y), color_t(25, 25, 25, 255), 0)
         render.rect_filled(vec2_t(window.window_list[index].pos.x, window.window_list[index].pos.y + 8 + text_size.y), vec2_t(window.window_list[index].size.x, 1), global.color, 0)
-        render.text(window.fonts.segoe_ui_18, window.window_list[index].name, vec2_t(window.window_list[index].pos.x + (window.window_list[index].size.x / 2) - (text_size.x / 2), window.window_list[index].pos.y + 4), color_t(225, 225, 225))
+        render.text(window.fonts.segoe_ui_18[window.font_dpi], window.window_list[index].name, vec2_t(window.window_list[index].pos.x + (window.window_list[index].size.x / 2) - (text_size.x / 2), window.window_list[index].pos.y + 4), color_t(225, 225, 225))
     else
         window.window_list[index].tab_height = 0
     end
@@ -500,15 +504,15 @@ end
 
 function window.add_bar(used_space, name, index, percent, col)
     local color = global.color if (col) then color = col end
-    local text_size = render.get_text_size(window.fonts.segoe_ui_13, name)
-    render.text(window.fonts.segoe_ui_13, name, vec2_t(window.window_list[index].pos.x + 8, window.window_list[index].pos.y + used_space.y + window.window_list[index].tab_height), color_t(225, 225, 225))
+    local text_size = render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], name)
+    render.text(window.fonts.segoe_ui_13[window.font_dpi], name, vec2_t(window.window_list[index].pos.x + 8, window.window_list[index].pos.y + used_space.y + window.window_list[index].tab_height), color_t(225, 225, 225))
 
     local bar_width = math.clamp((window.window_list[index].size.x - 16) * percent, 10, window.window_list[index].size.x - 16)
 
-    render.rect_filled(vec2_t(window.window_list[index].pos.x + 8, used_space.y + window.window_list[index].pos.y + window.window_list[index].tab_height + 4 + text_size.y), vec2_t(window.window_list[index].size.x - 16, 10), color_t(25, 25, 25, 255), 5)
+    render.rect_filled(vec2_t(window.window_list[index].pos.x + 8, used_space.y + window.window_list[index].pos.y + window.window_list[index].tab_height + 4 + text_size.y), vec2_t(window.window_list[index].size.x - 16, 10 * hud.dpi), color_t(25, 25, 25, 255), 5 * hud.dpi)
     
     if (percent > 0) then
-        render.rect_filled(vec2_t(window.window_list[index].pos.x + 8, used_space.y + window.window_list[index].pos.y + window.window_list[index].tab_height + 4 + text_size.y), vec2_t(bar_width, 10), color, 5)
+        render.rect_filled(vec2_t(window.window_list[index].pos.x + 8, used_space.y + window.window_list[index].pos.y + window.window_list[index].tab_height + 4 + text_size.y), vec2_t(bar_width, 10 * hud.dpi), color, 5)
     end
 
     return text_size.y + 22
@@ -597,7 +601,7 @@ function notification.run()
     end
 
     for i = 1, (#notification.list <= 8) and #notification.list or 8 do
-        local text_size, text_size_2 = render.get_text_size(window.fonts.segoe_ui_13, notification.list[i].name), render.get_text_size(window.fonts.segoe_ui_13, notification.list[i].description)
+        local text_size, text_size_2 = render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], notification.list[i].name), render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], notification.list[i].description)
         local total_width = text_size.x + text_size_2.x + 61 -- 16 px pad, 1 px line, 16 px pad, 8 px from side, 20 px outside
         local percent = (global_vars.real_time() - notification.list[i].start) / notification.list[i].time
         total_width = notification.easing(total_width, percent)
@@ -612,8 +616,8 @@ function notification.run()
 
         render.rect_filled(vec2_t(24 - total_width + text_size.x, 8 + used_space.y), vec2_t(1, 8 + text_size.y), global.color, 0)
 
-        render.text(window.fonts.segoe_ui_13, notification.list[i].name, vec2_t(16 - total_width, 12 + used_space.y), color_t(225, 225, 225))
-        render.text(window.fonts.segoe_ui_13, notification.list[i].description, vec2_t(29 + text_size.x - total_width, 12 + used_space.y), color_t(225, 225, 225))
+        render.text(window.fonts.segoe_ui_13[window.font_dpi], notification.list[i].name, vec2_t(16 - total_width, 12 + used_space.y), color_t(225, 225, 225))
+        render.text(window.fonts.segoe_ui_13[window.font_dpi], notification.list[i].description, vec2_t(29 + text_size.x - total_width, 12 + used_space.y), color_t(225, 225, 225))
         
         used_space.y = used_space.y + text_size.y + 12
     end
@@ -672,7 +676,7 @@ hud.context_menus = {
     },
     ["Watermark"] = {
         menu.add_selection("HUD Controls", "Watermark Style", { "Minimal", "Default Style" }),
-        menu.add_multi_selection("HUD Controls", "Disabled Information", { "Cheat Name", "Username", "UID", "Ping", "FPS" }),
+        menu.add_multi_selection("HUD Controls", "Disabled Information", { "Cheat Name", "Username", "UID", "Ping", "FPS", "Time" }),
         menu.add_selection("HUD Controls", "Snap Location", { "Top Right", "Top Left", "Bottom Right", "Bottom Left", "None" }),
     },
     ["Information"] = {
@@ -750,8 +754,8 @@ window.window_list[hud.windows.steps].draw_fn = function()
     render.push_clip(window.window_list[hud.windows.steps].pos, window.window_list[hud.windows.steps].size)
 
     if (local_player and local_player:is_player()) then
-        local text_size = render.get_text_size(window.fonts.segoe_ui_13, tostring(hud.steps.count))
-        render.text(window.fonts.segoe_ui_13, tostring(hud.steps.count), vec2_t(window.window_list[hud.windows.steps].pos.x + window.window_list[hud.windows.steps].size.x / 2 - text_size.x / 2, window.window_list[hud.windows.steps].pos.y + window.window_list[hud.windows.steps].tab_height + text_size.y / 4), color_t(225, 225, 225))
+        local text_size = render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], tostring(hud.steps.count))
+        render.text(window.fonts.segoe_ui_13[window.font_dpi], tostring(hud.steps.count), vec2_t(window.window_list[hud.windows.steps].pos.x + window.window_list[hud.windows.steps].size.x / 2 - text_size.x / 2, window.window_list[hud.windows.steps].pos.y + window.window_list[hud.windows.steps].tab_height + text_size.y / 4), color_t(225, 225, 225))
 
         used_space.y = used_space.y + text_size.y + 8
     else
@@ -818,10 +822,10 @@ window.window_list[hud.windows.chat].draw_fn = function()
     if (local_player and local_player:is_player()) then
         for i = 1, #hud.chatbox.logs do
             local text = (hud.chatbox.logs[i].dead and "*DEAD* " or "") .. (hud.chatbox.logs[i].teamchat and "*TEAM* " or "") .. hud.chatbox.logs[i].name .. " - " .. hud.chatbox.logs[i].text
-            local text_size = render.get_text_size(window.fonts.segoe_ui_13, text)
+            local text_size = render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], text)
             local col = hud.chatbox.logs[i].team == 2 and color_t(255, 128, 132) or hud.chatbox.logs[i].team == 3 and color_t(128, 181, 255) or color_t(255, 255, 255)
 
-            render.text(window.fonts.segoe_ui_13, text, vec2_t(window.window_list[hud.windows.chat].pos.x + 16, window.window_list[hud.windows.chat].pos.y + used_space.y + window.window_list[hud.windows.chat].tab_height), col)
+            render.text(window.fonts.segoe_ui_13[window.font_dpi], text, vec2_t(window.window_list[hud.windows.chat].pos.x + 16, window.window_list[hud.windows.chat].pos.y + used_space.y + window.window_list[hud.windows.chat].tab_height), col)
             used_space.y = used_space.y + text_size.y + 6
         end
     else
@@ -857,9 +861,9 @@ window.window_list[hud.windows.chat].draw_fn = function()
             hud.chatbox.chat_message, hud.chatbox.chatting = "", 0
         end
 
-        local text_size = render.get_text_size(window.fonts.segoe_ui_13, (hud.chatbox.chatting == 2 and "TEAM - " or "") .. hud.chatbox.chat_message)
+        local text_size = render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], (hud.chatbox.chatting == 2 and "TEAM - " or "") .. hud.chatbox.chat_message)
 
-        render.text(window.fonts.segoe_ui_13, (hud.chatbox.chatting == 2 and "TEAM - " or "") .. hud.chatbox.chat_message, vec2_t(window.window_list[hud.windows.chat].pos.x + 16, window.window_list[hud.windows.chat].pos.y + used_space.y + window.window_list[hud.windows.chat].tab_height + 6), color_t(225, 225, 225))
+        render.text(window.fonts.segoe_ui_13[window.font_dpi], (hud.chatbox.chatting == 2 and "TEAM - " or "") .. hud.chatbox.chat_message, vec2_t(window.window_list[hud.windows.chat].pos.x + 16, window.window_list[hud.windows.chat].pos.y + used_space.y + window.window_list[hud.windows.chat].tab_height + 6), color_t(225, 225, 225))
         render.rect_filled(vec2_t(window.window_list[hud.windows.chat].pos.x + 16 + text_size.x, window.window_list[hud.windows.chat].pos.y + used_space.y + window.window_list[hud.windows.chat].tab_height + 6), vec2_t(2, text_size.y), color_t(255, 255, 255))
 
         used_space.y = used_space.y + text_size.y + 12
@@ -912,13 +916,13 @@ window.window_list[hud.windows.score].draw_fn = function()
             if (ent:get_prop("m_iTeamNum") == 2) then t_wins = ent:get_prop("m_scoreTotal") else ct_wins = ent:get_prop("m_scoreTotal") end
         end
 
-        local text_size, mid_point = render.get_text_size(window.fonts.segoe_ui_18, "CT - " .. ct_wins), 0
-        render.text(window.fonts.segoe_ui_18, "CT - " .. ct_wins, vec2_t(window.window_list[hud.windows.score].pos.x + 16, window.window_list[hud.windows.score].pos.y + window.window_list[hud.windows.score].tab_height), color_t(225, 225, 225))
-        mid_point = window.window_list[hud.windows.score].pos.x + 16 + text_size.x text_size = render.get_text_size(window.fonts.segoe_ui_18, "T - " .. t_wins) mid_point = (mid_point + window.window_list[hud.windows.score].pos.x + window.window_list[hud.windows.score].size.x - 16 - text_size.x) / 2
-        render.text(window.fonts.segoe_ui_18, "T - " .. t_wins, vec2_t(window.window_list[hud.windows.score].pos.x + window.window_list[hud.windows.score].size.x - 16 - text_size.x, window.window_list[hud.windows.score].pos.y + window.window_list[hud.windows.score].tab_height), color_t(225, 225, 225))
+        local text_size, mid_point = render.get_text_size(window.fonts.segoe_ui_18[window.font_dpi], "CT - " .. ct_wins), 0
+        render.text(window.fonts.segoe_ui_18[window.font_dpi], "CT - " .. ct_wins, vec2_t(window.window_list[hud.windows.score].pos.x + 16, window.window_list[hud.windows.score].pos.y + window.window_list[hud.windows.score].tab_height), color_t(225, 225, 225))
+        mid_point = window.window_list[hud.windows.score].pos.x + 16 + text_size.x text_size = render.get_text_size(window.fonts.segoe_ui_18[window.font_dpi], "T - " .. t_wins) mid_point = (mid_point + window.window_list[hud.windows.score].pos.x + window.window_list[hud.windows.score].size.x - 16 - text_size.x) / 2
+        render.text(window.fonts.segoe_ui_18[window.font_dpi], "T - " .. t_wins, vec2_t(window.window_list[hud.windows.score].pos.x + window.window_list[hud.windows.score].size.x - 16 - text_size.x, window.window_list[hud.windows.score].pos.y + window.window_list[hud.windows.score].tab_height), color_t(225, 225, 225))
 
-        text_size = render.get_text_size(window.fonts.segoe_ui_18, time_text)
-        render.text(window.fonts.segoe_ui_18, time_text, vec2_t(mid_point - text_size.x / 2, window.window_list[hud.windows.score].pos.y + window.window_list[hud.windows.score].tab_height), color_t(225, 225, 225))
+        text_size = render.get_text_size(window.fonts.segoe_ui_18[window.font_dpi], time_text)
+        render.text(window.fonts.segoe_ui_18[window.font_dpi], time_text, vec2_t(mid_point - text_size.x / 2, window.window_list[hud.windows.score].pos.y + window.window_list[hud.windows.score].tab_height), color_t(225, 225, 225))
 
         used_space.y = used_space.y + text_size.y + 4
 
@@ -987,7 +991,7 @@ window.window_list[hud.windows.weapon].draw_fn = function()
             if (sort_weap[i]) then
                 for f = 0, 20 do -- length is unusable because of use of dynamic tables above so static size and just check if it's nil cause I'm too lazy
                     if (sort_weap[i][f]) then
-                        local text_size = render.get_text_size(window.fonts.segoe_ui_13, sort_weap[i][f][1])
+                        local text_size = render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], sort_weap[i][f][1])
                         local ico = filesystem.load_icon(sort_weap[i][f][2])
                         local percent = (ico.size.y - text_size.y) / ico.size.y
                         local size = vec2_t(math.floor(ico.size.x * percent), math.floor(ico.size.y * percent))
@@ -1034,14 +1038,16 @@ window.window_list[hud.windows.watermark].draw_fn = function()
         if (text == "") then return "" else return " | " end
     end
 
+    local hr, min, sec, pm = client.get_local_time() if (math.floor(hr / 12) == 1) then pm = "PM" else pm = "AM" end hr = hr - (12 * math.floor(hr / 12))
     local snap_location = hud.context_menus["Watermark"][3]:get()
     local watermark_text = (not hud.context_menus["Watermark"][2]:get(1) and "primordial" or "")
     watermark_text = watermark_text .. (not hud.context_menus["Watermark"][2]:get(2) and (watermark_add(watermark_text) .. user.name) or "")
     watermark_text = watermark_text .. (not hud.context_menus["Watermark"][2]:get(3) and (watermark_add(watermark_text) .. "uid " .. user.uid) or "")
     watermark_text = watermark_text .. (not hud.context_menus["Watermark"][2]:get(4) and (watermark_add(watermark_text) .. math.floor(engine.get_latency(e_latency_flows.OUTGOING) * 1000) .. "ms") or "")
     watermark_text = watermark_text .. (not hud.context_menus["Watermark"][2]:get(5) and (watermark_add(watermark_text) .. client.get_fps() .. " fps") or "")
+    watermark_text = watermark_text .. (not hud.context_menus["Watermark"][2]:get(6) and (watermark_add(watermark_text) .. hr .. ":" .. ((min > 9) and min or ("0" .. tostring(min))) .. ":" .. ((sec > 9) and sec or ("0" .. tostring(sec))) .. " " .. pm) or "")
 
-    local text_size = render.get_text_size(window.fonts.segoe_ui_13, watermark_text)
+    local text_size = render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], watermark_text)
 
     window.window_list[hud.windows.watermark].flags.FL_NOMOVE = snap_location ~= 5
 
@@ -1067,7 +1073,7 @@ window.window_list[hud.windows.watermark].draw_fn = function()
     end
 
     render.push_clip(window.window_list[hud.windows.watermark].pos, window.window_list[hud.windows.watermark].size)
-    render.text(window.fonts.segoe_ui_13, watermark_text, vec2_t(window.window_list[hud.windows.watermark].pos.x + 8, window.window_list[hud.windows.watermark].pos.y + 4), color_t(225, 225, 225))
+    render.text(window.fonts.segoe_ui_13[window.font_dpi], watermark_text, vec2_t(window.window_list[hud.windows.watermark].pos.x + 8, window.window_list[hud.windows.watermark].pos.y + 4), color_t(225, 225, 225))
     render.pop_clip()
 end
 
@@ -1134,10 +1140,10 @@ window.window_list[hud.windows.spectator].draw_fn = function()
     render.push_clip(window.window_list[hud.windows.spectator].pos, window.window_list[hud.windows.spectator].size)
 
     for i = 1, #spectators do
-        local text_size = render.get_text_size(window.fonts.segoe_ui_13, spectators[i])
+        local text_size = render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], spectators[i])
         local text_pos = vec2_t(window.window_list[hud.windows.spectator].pos.x + 8, 2 + window.window_list[hud.windows.spectator].pos.y + window.window_list[hud.windows.spectator].tab_height + used_space.y)
 
-        render.text(window.fonts.segoe_ui_13, spectators[i], text_pos, color_t(225, 225, 225))
+        render.text(window.fonts.segoe_ui_13[window.font_dpi], spectators[i], text_pos, color_t(225, 225, 225))
 
         used_space = vec2_t(used_space.x, used_space.y + text_size.y + 8)
     end
@@ -1193,10 +1199,10 @@ window.window_list[hud.windows.keybind].draw_fn = function()
     render.push_clip(window.window_list[hud.windows.keybind].pos, window.window_list[hud.windows.keybind].size)
 
     for i = 1, #binds do
-        local text_size = render.get_text_size(window.fonts.segoe_ui_13, binds[i])
+        local text_size = render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], binds[i])
         local text_pos = vec2_t(window.window_list[hud.windows.keybind].pos.x + 8, 2 + window.window_list[hud.windows.keybind].pos.y + window.window_list[hud.windows.keybind].tab_height + used_space.y)
 
-        render.text(window.fonts.segoe_ui_13, binds[i], text_pos, color_t(225, 225, 225))
+        render.text(window.fonts.segoe_ui_13[window.font_dpi], binds[i], text_pos, color_t(225, 225, 225))
 
         used_space = vec2_t(used_space.x, used_space.y + text_size.y + 8)
     end
@@ -1288,7 +1294,7 @@ window.window_list[hud.windows.player_list].draw_fn = function()
             local size = vec2_t(collumn_size.x * 2, collumn_size.y)
 
             render.push_clip(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))
-            local text_size, text_pos = render.get_text_size(window.fonts.segoe_ui_13, name)
+            local text_size, text_pos = render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], name)
             if (button) then
                 text_pos = vec2_t(pos.x + size.x / 2 - text_size.x / 2, pos.y + used_space.x + text_size.y / 4 + 8)
                 render.rect_filled(vec2_t(pos.x + 8, pos.y + used_space.x + 8), vec2_t(size.x - 16, text_size.y + 8), color_t(35, 35, 35, 255), 6)
@@ -1304,7 +1310,7 @@ window.window_list[hud.windows.player_list].draw_fn = function()
             if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))
                 and input.is_mouse_in_bounds(vec2_t(pos.x + 8, pos.y + used_space.x + 8), vec2_t(size.x - 16, text_size.y + 8))) then
                 window.window_list[hud.windows.player_list].flags.FL_NOMOVE = true
-                render.text(window.fonts.segoe_ui_13, name, text_pos, global.color)
+                render.text(window.fonts.segoe_ui_13[window.font_dpi], name, text_pos, global.color)
 
                 if (input.is_key_pressed(e_keys.MOUSE_LEFT) and ply ~= selected_ent) then
                     if (button) then
@@ -1314,7 +1320,7 @@ window.window_list[hud.windows.player_list].draw_fn = function()
                     end
                 end
             else
-                render.text(window.fonts.segoe_ui_13, name, text_pos, color_t(225, 225, 225))
+                render.text(window.fonts.segoe_ui_13[window.font_dpi], name, text_pos, color_t(225, 225, 225))
             end
             render.pop_clip()
 
@@ -1325,20 +1331,20 @@ window.window_list[hud.windows.player_list].draw_fn = function()
         local players, used_space = entity_list.get_players(false), vec2_t(0, 0)
         for _, ply in pairs(players) do
             if (ply ~= local_player) then
-                local text_size = render.get_text_size(window.fonts.segoe_ui_13, ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name())
+                local text_size = render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name())
                 local text_pos = vec2_t(window.window_list[hud.windows.player_list].pos.x + 14, window.window_list[hud.windows.player_list].pos.y + used_space.y + player_list.scroll.y + window.window_list[hud.windows.player_list].tab_height + 6)
                 
                 render.push_clip(vec2_t(window.window_list[hud.windows.player_list].pos.x + 12, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2 - 20, collumn_size.y - 12))
                 if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 12, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2 - 20, collumn_size.y - 12))
                     and input.is_mouse_in_bounds(vec2_t(text_pos.x, text_pos.y - 2), vec2_t(collumn_size.x * 2 - 20, text_size.y + 4)) or ply == selected_ent) then
-                    render.text(window.fonts.segoe_ui_13, ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name(), text_pos, global.color)
+                    render.text(window.fonts.segoe_ui_13[window.font_dpi], ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name(), text_pos, global.color)
                     if (ply ~= selected_ent) then window.window_list[hud.windows.player_list].flags.FL_NOMOVE = true end
 
                     if (input.is_key_pressed(e_keys.MOUSE_LEFT) and ply ~= selected_ent) then
                         selected_ent = ply
                     end
                 else
-                    render.text(window.fonts.segoe_ui_13, ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name(), text_pos, color_t(225, 225, 225))
+                    render.text(window.fonts.segoe_ui_13[window.font_dpi], ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name(), text_pos, color_t(225, 225, 225))
                 end
                 render.pop_clip()
 
@@ -1612,7 +1618,7 @@ end
 
 local jojosiwa_aa = {
     control = menu.add_checkbox("Anti-Aim", "Extended Extended Angles", false),
-    yaw = menu.add_slider("Anti-Aim", "Yaw", -180, 180),
+    yaw = menu.add_slider("Anti-Aim", "Yaw", -180, 180, 1, 0, "°"),
     flip = menu.add_text("Anti-Aim", "Invert Side"),
     init = { initialized = false, yaw_base = 0, yaw_add = 0, extended_offset, extended_type },
 }
@@ -1945,7 +1951,9 @@ end)
 --]]
 
 callbacks.add(e_callbacks.PAINT, function()
-    local_player, local_player_or_spectating, screen_size = entity_list.get_local_player(), entity_list.get_local_player_or_spectating(), render.get_screen_size()
+    local_player, local_player_or_spectating, screen_size, hud.dpi = entity_list.get_local_player(), entity_list.get_local_player_or_spectating(), render.get_screen_size(), 1 + hud.dpi_control:get()
+    hud.font_dpi = math.floor((hud.dpi - 0.25) / 0.25) window.font_dpi = hud.font_dpi
+
     callback.run_paint()
     auto_peek.run_paint()
     clantag.run_paint()
