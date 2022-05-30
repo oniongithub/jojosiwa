@@ -14,6 +14,7 @@ global.window_references = {
     hide_shots = menu.find("aimbot", "general", "exploits", "hideshots", "enable"),
     anti_aim = menu.find("antiaim", "main", "general", "enable"),
     fake_lag = menu.find("antiaim", "main", "fakelag", "amount"),
+    fake_duck = menu.find("antiaim", "main", "general", "fake duck"),
     thirdperson = menu.find("visuals", "other", "thirdperson", "enable"),
     auto_peek = menu.find("aimbot", "general", "misc", "autopeek"),
     body_lean = menu.find("aimbot", "general", "aimbot", "body lean resolver"),
@@ -1163,6 +1164,7 @@ local keybind = {
     binds = {
         { name = "Double Tap", control = global.window_references.double_tap },
         { name = "Hide Shots", control = global.window_references.hide_shots },
+        { name = "Fake Duck", control = global.window_references.fake_duck },
         { name = "Thirdperson", control = global.window_references.thirdperson },
         { name = "Auto Peek", control = global.window_references.auto_peek },
         { name = "Lean Resolver", control = global.window_references.body_lean },
@@ -1947,6 +1949,25 @@ callbacks.add_event("player_death", function(ctx)
 end)
 
 --[[
+    Fakeduck Discharge
+--]]
+
+local fd_discharge = {
+    control = menu.add_checkbox("Ragebot", "Fake Duck Discharge in Air", true),
+}
+
+fd_discharge.on_setup_command = function()
+    if (global.window_references.fake_duck[2]:get()) then
+        if (fd_discharge.control:get()) then
+            exploits.block_recharge()
+            exploits.force_uncharge() 
+        end
+    else
+        exploits.allow_recharge()
+    end
+end
+
+--[[
     Callbacks
 --]]
 
@@ -1982,6 +2003,7 @@ callbacks.add(e_callbacks.PAINT, function()
 end)
 
 callbacks.add(e_callbacks.SETUP_COMMAND, function(cmd)
+    fd_discharge.on_setup_command()
     clantag.run_setup_commands()
     jojosiwa_aa.run_setup_command()
     anti_afk.run_setup_command(cmd)
