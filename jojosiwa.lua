@@ -1886,7 +1886,7 @@ local aim_logs = {
 }
 
 aim_logs.aimbot_miss = function(ctx)
-    if (aim_logs.control:get() and aim_logs.types:get(2)) then
+    if (aim_logs.control:get() and aim_logs.types:get(2) and ctx.player and ctx.player:is_player()) then
         local log_text = "ply = " .. ctx.player:get_name() .. " | r = " .. ctx.reason_string .. " | dmg = " .. ctx.aim_damage .. "hp | bt = " .. ctx.backtrack_ticks .. "t | hc = " .. ctx.aim_hitchance .. "% | safe = " .. tostring(ctx.aim_safepoint) .. "."
     
         if (aim_logs.log_in:get(1)) then
@@ -1900,7 +1900,7 @@ aim_logs.aimbot_miss = function(ctx)
 end
 
 aim_logs.aimbot_hit = function(ctx)
-    if (aim_logs.control:get() and aim_logs.types:get(1)) then
+    if (aim_logs.control:get() and aim_logs.types:get(1) and ctx.player and ctx.player:is_player()) then
         local log_text = "ply = " .. ctx.player:get_name() .. " | dmg = " .. ctx.damage .. "hp | pred dmg = " .. ctx.aim_damage .. "hp | hc = " .. ctx.aim_hitchance .. "% | bt = " .. ctx.backtrack_ticks .. "t | safe = " .. tostring(ctx.aim_safepoint) .. "."
     
         if (aim_logs.log_in:get(1)) then
