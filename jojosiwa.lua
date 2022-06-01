@@ -228,6 +228,10 @@ function math.hsb_to_rgb(h, s, l)
     return math.floor(r * 255), math.floor(g * 255), math.floor(b * 255)
 end
 
+function math.num_to_num(num1, num2, percent)
+    return math.floor(math.clamp(num1 + (num2 - num1) * percent, 0, 255))
+end
+
 --[[
     Filesystem Library
 --]]
@@ -1706,25 +1710,45 @@ end)
 --]]
 
 local rainbow = {
-    control = menu.add_checkbox("Rainbow", "Rainbow Colors", false),
-    speed = menu.add_slider("Rainbow", "Speed", 0, 100),
-    saturation = menu.add_slider("Rainbow", "Saturation", 0, 100),
-    brightness = menu.add_slider("Rainbow", "Brightness", 0, 100),
+    control = menu.add_selection("Colors", "Color Animation", { "None", "Rainbow", "Custom" }),
+    menu_accent = menu.add_checkbox("Colors", "Modify Menu Accent", false),
+    speed = menu.add_slider("Colors", "Speed", 0, 100),
+    saturation = menu.add_slider("Colors", "Saturation", 0, 100),
+    brightness = menu.add_slider("Colors", "Brightness", 0, 100),
 }
 
-menu.set_group_column("Rainbow", 1)
+rainbow.color_1 = rainbow.control:add_color_picker("Color 1")
+rainbow.color_2 = rainbow.control:add_color_picker("Color 2")
+
+menu.set_group_column("Colors", 1)
 
 rainbow.run_paint = function()
-    local speed = 10 * ((100 - rainbow.speed:get()) / 100)
-    local hue = math.clamp(1 * ((global_vars.real_time() - speed * math.floor(global_vars.real_time() / speed)) / speed), 0, 1)
-
-    if (not rainbow.control:get()) then
+    if (rainbow.control:get() == 1) then
         global.color = global.window_references.menu_accent_2:get()
     else
-        local col = global.window_references.menu_accent_2:get()
-        local r, g, b = math.hsb_to_rgb(hue, rainbow.saturation:get(), rainbow.brightness:get())
+        if (rainbow.control:get() == 2) then
+            local speed = 10 * ((100 - rainbow.speed:get()) / 100)
+            local hue = math.clamp(1 * ((global_vars.real_time() - speed * math.floor(global_vars.real_time() / speed)) / speed), 0, 1)
+            local col = global.window_references.menu_accent_2:get()
+            local r, g, b = math.hsb_to_rgb(hue, rainbow.saturation:get(), rainbow.brightness:get())
 
-        global.color = color_t(r, g, b, col.a)
+            global.color = color_t(r, g, b, col.a) if (rainbow.menu_accent:get()) then global.window_references.menu_accent_2:set(color_t(r, g, b, col.a)) end
+        else
+            local speed, switch = 6.66 * ((100 - rainbow.speed:get()) / 100), false -- switching between 2 colors instead of r, g, b so 2/3 of the full 10 = 6.66 repeated
+            local percent = math.clamp(1 * ((global_vars.real_time() - speed * math.floor(global_vars.real_time() / speed)) / speed), 0, 1)
+            local col_1, col_2, end_color = rainbow.color_1:get(), rainbow.color_2:get(), color_t(255, 255, 255)
+            if (percent >= 0.5) then percent = 0.5 - math.abs(0.5 - percent) end
+
+            if (col_1 and col_2) then
+                if (switch) then
+                    end_color = color_t(math.num_to_num(col_1.r, col_2.r, percent * 2), math.num_to_num(col_1.g, col_2.g, percent * 2), math.num_to_num(col_1.b, col_2.b, percent * 2), 255)
+                else
+                    end_color = color_t(math.num_to_num(col_2.r, col_1.r, percent * 2), math.num_to_num(col_2.g, col_1.g, percent * 2), math.num_to_num(col_2.b, col_1.b, percent * 2), 255)
+                end
+            end
+
+            global.color = end_color if (rainbow.menu_accent:get()) then global.window_references.menu_accent_2:set(end_color) end
+        end
     end
 end
 
