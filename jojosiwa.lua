@@ -159,6 +159,14 @@ function render.circle_3d(pos, col, radius, angle, segments, percent)
     end
 end
 
+global.hitboxes = { e_hitboxes.HEAD, e_hitboxes.NECK, e_hitboxes.PELVIS,
+                   e_hitboxes.BODY, e_hitboxes.THORAX, e_hitboxes.CHEST,
+                   e_hitboxes.UPPER_CHEST, e_hitboxes.RIGHT_THIGH, e_hitboxes.LEFT_THIGH,
+                   e_hitboxes.RIGHT_CALF, e_hitboxes.LEFT_CALF, e_hitboxes.RIGHT_FOOT,
+                   e_hitboxes.LEFT_FOOT, e_hitboxes.RIGHT_HAND, e_hitboxes.LEFT_HAND, e_hitboxes.RIGHT_UPPER_ARM,
+                   e_hitboxes.RIGHT_FOREARM, e_hitboxes.LEFT_UPPER_ARM, e_hitboxes.LEFT_FOREARM
+                }
+
 function engine.trace_crosshair(distance)
     local local_player = entity_list.get_local_player()
 
@@ -184,7 +192,21 @@ function engine.get_local_fov(ent, point)
         if (point) then
             normalized = vec3_t(point.x - local_position.x, point.y - local_position.y, point.z - local_position.z):normalize()
         else
-            normalized = vec3_t(ply_position.x - local_position.x, ply_position.y - local_position.y, local_position.z - local_position.z):normalize()
+            local lowest = 180
+            for i = 1, #global.hitboxes do
+                point = ent:get_hitbox_pos(global.hitboxes[i])
+
+                normalized = vec3_t(point.x - local_position.x, point.y - local_position.y, point.z - local_position.z):normalize()
+                local dot_product = normalized:dot(camera_angles:to_vector())
+                local cos_inverse = math.acos(dot_product)
+        
+                if (cos_inverse == cos_inverse and cos_inverse ~= INF) then
+                    local fov = (180.0 / math.pi) * cos_inverse
+                    if (fov <= lowest) then lowest = fov end
+                end
+            end
+            
+            return lowest
         end
 
         local dot_product = normalized:dot(camera_angles:to_vector())
@@ -261,6 +283,18 @@ function filesystem.read_file(path)
 end
 
 filesystem.weapon_icons = {}
+function filesystem.load_panorama_icon(icon)
+    local file_text = filesystem.read_file(icon)
+
+    if (file_text) then
+        local img = render.load_image_buffer(file_text)
+
+        if (img) then
+            return img
+        end
+    end
+end
+
 function filesystem.load_icon(weap)
     local function contains(tbl, text)
         for i = 1, #tbl do
@@ -278,15 +312,11 @@ function filesystem.load_icon(weap)
         if (contained) then
             return filesystem.weapon_icons[contained][1]
         else
-            local file_text = filesystem.read_file("materials/panorama/images/icons/equipment/" .. item .. ".svg")
+            local img = filesystem.load_panorama_icon("materials/panorama/images/icons/equipment/" .. item .. ".svg")
 
-            if (file_text) then
-                local img = render.load_image_buffer(file_text)
-
-                if (img) then
-                    table.insert(filesystem.weapon_icons, {img, item})
-                    return img
-                end
+            if (img) then
+                table.insert(filesystem.weapon_icons, {img, item})
+                return img
             end
         end
     end
