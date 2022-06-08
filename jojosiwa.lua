@@ -360,10 +360,12 @@ callbacks.remove_event = function(id)
 end
 
 callbacks.add(e_callbacks.EVENT, function(event)
-    for i = 1, #event_lib.tab do
-        if (event_lib.tab[i].event == event.name) then
-            for f = 1, #event_lib.tab[i].functions do
-                event_lib.tab[i].functions[f].fn(event)
+    if (event) then
+        for i = 1, #event_lib.tab do
+            if (event_lib.tab[i].event == event.name) then
+                for f = 1, #event_lib.tab[i].functions do
+                    event_lib.tab[i].functions[f].fn(event)
+                end
             end
         end
     end
