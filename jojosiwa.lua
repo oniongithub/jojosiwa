@@ -5,8 +5,7 @@
 local global = {} global.__index = {}
 
 local hud = {} hud.__index = hud
-hud.controls = menu.add_multi_selection("HUD", "HUD Elements", { "Keybinds", "Spectator List", "Watermark", "Information", "Health Info", "Weapon Info", "Scoreboard", "Chatbox", "Radar", "Step Counter", "Team Damage", "Player List" })
-hud.dpi_control, hud.dpi, hud.font_dpi = menu.add_slider("HUD", "DPI", -0.5, 1, 0.25, 2), 1
+hud.controls, hud.dpi_control, hud.dpi, hud.font_dpi = nil, nil, nil, nil
 local local_player, local_player_or_spectating, screen_size = entity_list.get_local_player(), entity_list.get_local_player_or_spectating(), render.get_screen_size()
 
 global.window_references = {
@@ -661,8 +660,176 @@ function notification.run()
 end
 
 --[[
+    Clipboard Library made by hause https://primordial.dev/resources/clipboard-lib.131/
+--]]
+
+local clipboard = {} clipboard.__index = {}
+
+clipboard.vtable_bind = function(mod, face, n, type)
+	local iface = memory.create_interface(mod, face) or error(face .. ": invalid interface")
+	local instance = memory.get_vfunc(iface, n) or error(index .. ": invalid index")
+	local success, typeof = pcall(ffi.typeof, type)
+	if not success then
+		error(typeof, 2)
+	end
+	local fnptr = ffi.cast(typeof, instance) or error(type .. ": invalid typecast")
+	return function(...)
+		return fnptr(tonumber(ffi.cast("void***", iface)), ...)
+	end
+end
+
+clipboard.functions = {
+    text_count = clipboard.vtable_bind("vgui2.dll", "VGUI_System010", 7, "int(__thiscall*)(void*)"),
+    set_text = clipboard.vtable_bind("vgui2.dll", "VGUI_System010", 9, "void(__thiscall*)(void*, const char*, int)"),
+    get_text = clipboard.vtable_bind("vgui2.dll", "VGUI_System010", 11, "int(__thiscall*)(void*, int, const char*, int)")
+}
+
+clipboard.get = function()
+    local length = clipboard.functions.text_count()
+    if (length > 0) then
+        local char_arr = ffi.typeof("char[?]")(length)
+        clipboard.functions.get_text(0, char_arr, length)
+        return ffi.string(char_arr, length - 1)
+    end
+end
+
+clipboard.set = function(text)
+    text = tostring(text)
+    clipboard.functions.set_text(text, string.len(text))
+end
+
+--[[
+    Config System
+--]]
+
+local config = {} config.__index = {}
+
+config.setting_table = {}
+config.menu_func = {
+    add_checkbox = menu.add_checkbox,
+    add_selection = menu.add_selection,
+    add_slider = menu.add_slider,
+    add_list = menu.add_list,
+    add_multi_selection = menu.add_multi_selection,
+}
+
+config.seperator = "|"
+
+config.control_function = function(control, group, name, multi_select, control_name)
+    table.insert(config.setting_table, { control = control, group = group, name = name, special = multi_select, control_name = control_name })
+
+    return control
+end
+
+function menu.add_checkbox(group, name, ...)
+    local control = config.menu_func.add_checkbox(group, name, ...)
+    return config.control_function(control, group, name, false, "checkbox")
+end
+
+function menu.add_selection(group, name, ...)
+    local control = config.menu_func.add_selection(group, name, ...)
+    return config.control_function(control, group, name, false, "selection")
+end
+
+function menu.add_slider(group, name, ...)
+    local control = config.menu_func.add_slider(group, name, ...)
+    return config.control_function(control, group, name, false, "slider")
+end
+
+function menu.add_list(group, name, ...)
+    local control = config.menu_func.add_list(group, name, ...)
+    return config.control_function(control, group, name, false, "list")
+end
+
+function menu.add_multi_selection(group, name, ...)
+    local control = config.menu_func.add_multi_selection(group, name, ...)
+    return config.control_function(control, group, name, true, "multi selection")
+end
+
+string.find_all = function(text, word)
+    local i, tbl = 0, {}
+
+    while true do
+        i = string.find(text, word, i + 1)
+        if (i) then table.insert(tbl, i) else break end
+    end
+
+    return tbl
+end
+
+string.split_on_str = function(text, str)
+    local str_table, split_table = string.find_all(text, str), {}
+
+    if (str_table and #str_table > 0) then
+        for i = 1, #str_table + 1 do
+            if (i == 1) then table.insert(split_table, string.sub(text, 1, str_table[i] - 1))
+            elseif (i == #str_table + 1) then table.insert(split_table, string.sub(text, str_table[i - 1] + 1, #text))
+            else table.insert(split_table, string.sub(text, str_table[i - 1] + 1, str_table[i] - 1)) end
+        end
+    end
+
+    return split_table
+end
+
+config.import_settings = function(text)
+    local line_table = string.split_on_str(text, "\n")
+
+    for i = 1, #line_table do
+        local arg_table = string.split_on_str(line_table[i], config.seperator)
+
+        local group, name, value_type, multi_select, value = arg_table[1], arg_table[2], arg_table[3], arg_table[4] == "true", nil
+
+        if (value_type == "number") then
+            value = tonumber(arg_table[5])
+        elseif (value_type == "boolean") then
+            if (string.find(arg_table[5], "true")) then
+                value = true
+            else
+                value = false
+            end
+        end
+
+        for f = 1, #config.setting_table do
+            if (config.setting_table[f].group == group and config.setting_table[f].name == name) then
+                if (not multi_select) then
+                    config.setting_table[f].control:set(value)
+                else
+                    for j = 5, #arg_table do
+                        if (j % 2 ~= 0) then
+                            config.setting_table[f].control:set(tonumber(arg_table[j]), arg_table[j + 1] == "true")
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+config.export_settings = function()
+    local export_text = ""
+
+    for i = 1, #config.setting_table do
+        if (not config.setting_table[i].special) then
+            export_text = export_text .. ((export_text == "") and "" or "\n") .. (config.setting_table[i].group .. config.seperator .. config.setting_table[i].name .. config.seperator .. type(config.setting_table[i].control:get()) .. config.seperator .. tostring(config.setting_table[i].special) .. config.seperator .. tostring(config.setting_table[i].control:get()))
+        else
+            export_text = export_text .. ((export_text == "") and "" or "\n") .. (config.setting_table[i].group .. config.seperator .. config.setting_table[i].name .. config.seperator .. "table" .. config.seperator .. tostring(config.setting_table[i].special))
+
+            local items = config.setting_table[i].control:get_items()
+
+            for f = 1, #items do
+                export_text = export_text .. config.seperator .. f .. config.seperator .. tostring(config.setting_table[i].control:get(f))
+            end
+        end
+    end
+
+    return export_text
+end
+
+--[[
     HUD Functions
 --]]
+
+hud.controls = menu.add_multi_selection("HUD", "HUD Elements", { "Keybinds", "Spectator List", "Watermark", "Information", "Health Info", "Weapon Info", "Scoreboard", "Chatbox", "Radar", "Step Counter", "Team Damage", "Player List" })
 
 hud.keys = { {60, "/", "?"}, {65, " "}, {1, "0", ")"}, {2, "1", "!"}, {3, "2", "@"}, 
                {4, "3", "#"}, {5, "4", "$"}, {6, "5", "%"}, {7, "6", "^"}, {8, "7", "&"},
@@ -700,6 +867,7 @@ hud.windows = {
 }
 
 hud.context_control = menu.add_selection("HUD Controls", "Element Controls", {"None", "Keybinds", "Spectators", "Watermark", "Information"})
+hud.dpi_control, hud.dpi, hud.font_dpi = menu.add_slider("HUD", "DPI", -0.5, 1, 0.25, 2), 1
 menu.add_separator("HUD Controls")
 
 hud.context_menus = {
@@ -1794,7 +1962,7 @@ legitbot = {
     on_key = menu.add_checkbox("Legitbot", "Fire on Key", true),
     visible_check = menu.add_checkbox("Legitbot", "Visible Check", true),
     hitbox_selection = menu.add_multi_selection("Legitbot", "Hitboxes", { "Head", "Body", "Pelvis" }),
-    hitbox_priority = menu.add_selection("Legitbot", "Hitboxes", { "Nearest", "Head", "Body", "Pelvis" }),
+    hitbox_priority = menu.add_selection("Legitbot", "Selection", { "Nearest", "Head", "Body", "Pelvis" }),
     minimum_damage = menu.add_slider("Legitbot", "Minimum Damage", 0, 100, 1, 0, "hp"),
     fov = menu.add_slider("Legitbot", "FOV", 0, 45, 0.1, 1, "°"),
     smoothing = menu.add_slider("Legitbot", "Smoothing", 0, 100, 1, 0, "%"),
@@ -1974,7 +2142,7 @@ end
 --]]
 
 local killsay = {
-    control = menu.add_selection("General", "Killsay", { "Disabled", "All", "Targetted" }),
+    control = menu.add_selection("General", "Killsay", { "Disabled", "All", "Targeted" }),
     messages = {
         "1", "You suck.", "nice stevie wonder aim", "Missclick", "lick my sphincter", "*DEAD*", "imagine not using jojosiwa.lua",
     }
@@ -2022,6 +2190,31 @@ fd_discharge.on_setup_command = function()
         exploits.allow_recharge()
     end
 end
+
+--[[
+    Config System
+--]]
+
+menu.add_button("Config", "Export Config", function()
+    local clipboard_text = config.export_settings()
+
+    if (clipboard_text) then
+        notification.add("Exported", "Your config has been exported to your clipboard.", 5)
+        global.log("Your config has been exported to your clipboard.")
+        clipboard.set(clipboard_text)
+    else
+        notification.add("Failed", "Your config has failed to export.", 5)
+        global.log("Your config has failed to export.")
+    end
+end)
+
+menu.add_button("Config", "Import Config", function()
+    notification.add("Imported", "Your config has been imported from your clipboard.", 5)
+    global.log("Your config has been imported from your clipboard.")
+
+    config.import_settings(clipboard.get())
+    local clipboard_text = config.export_settings()
+end)
 
 --[[
     Callbacks
