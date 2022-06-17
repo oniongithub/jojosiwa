@@ -619,8 +619,16 @@ end
 
 local notification = {} notification.__index = notification notification.list = {}
 
-function notification.add(name, description, time)
+notification.controls = {
+    enabled = menu.add_checkbox("Notifications", "Enabled", true),
+    console_log = menu.add_checkbox("Notifications", "Print to Console", true),
+    force_log = menu.add_checkbox("Notifications", "Force Print"),
+}
+
+function notification.add(name, description, time, log)
     table.insert(notification.list, { name = name, description = description, time = time, start = global_vars.real_time() })
+
+    if ((log and notification.controls.console_log:get()) or (notification.controls.console_log:get() and notification.controls.force_log:get())) then global.log(name .. " - " .. description) end
 end
 
 function notification.easing(width, percent)
@@ -842,7 +850,6 @@ hud.keys = { {60, "/", "?"}, {65, " "}, {1, "0", ")"}, {2, "1", "!"}, {3, "2", "
                {61, "\\", "|"}, {62, "-", "_"}, {63, "=", "+"}, {67, "    "} };
 
 hud.toggles = {
-    notifications = menu.add_checkbox("HUD", "Notifications", true),
     keybind = 1, spectator = 2, watermark = 3, information = 4,
     health = 5, weapon = 6, score = 7, chat = 8, radar = 9,
     steps = 10, team_damage = 11, player_list = 12,
@@ -1436,6 +1443,11 @@ player_list.repeat_blacklist = {
     "vote", "votealltalk", "voteban", "voteburn", "voteff", "votegravity", "votekick", "votemap", "voteslay"
 }
 
+player_list.controls = {
+    repeat_text = menu.add_selection("General", "Repeat Text", { "Disabled", "All", "Targeted" }),
+    killsay = menu.add_selection("General", "Killsay", { "Disabled", "All", "Targeted" }),
+}
+
 function player_list.run_repeat_text(chat, ent)
     local text = chat:gsub(";", "")
     if (string.sub(text, 1, 1) == "/" or string.sub(text, 1, 1) == "!") then
@@ -1459,7 +1471,7 @@ function player_list.repeat_text_event(ctx)
             if (ent ~= local_player) then
                 local contains, ind = player_list.contains(ent)
 
-                if (contains and player_list.table[ind].checks.repeat_chat) then
+                if (contains and player_list.controls.repeat_text:get() == 2 or (player_list.controls.repeat_text:get() == 3 and player_list.table[ind].checks.repeat_chat)) then
                     player_list.run_repeat_text(ctx.text)
                 end
             end
@@ -1591,13 +1603,17 @@ end
 
 local auto_peek = {} auto_peek.__index = auto_peek
 auto_peek.time = global_vars.real_time() auto_peek.controls = {
+    enabled = menu.add_checkbox("Auto Peek", "Enabled", true),
+    custom_color = menu.add_checkbox("Auto Peek", "Custom Color", false),
     speed = menu.add_slider("Auto Peek", "Speed", 50, 2500, 50, 1, "ms"),
     angle = menu.add_slider("Auto Peek", "Angle", 1, 100, 1, 1, "%"),
 }
 
+auto_peek.controls.color = auto_peek.controls.custom_color:add_color_picker("Custom Color")
+
 function auto_peek.run_paint()
-    if (global.window_references.auto_peek_2:get()) then
-        render.circle_3d(ragebot.get_autopeek_pos(), global.color, 25, 360 * ((auto_peek.time - global_vars.real_time()) / (auto_peek.controls.speed:get() / 1000)), 72, auto_peek.controls.angle:get())
+    if (global.window_references.auto_peek_2:get() and auto_peek.controls.enabled:get()) then
+        render.circle_3d(ragebot.get_autopeek_pos(), auto_peek.controls.custom_color:get() == true and auto_peek.controls.color:get() or global.color, 25, 360 * ((auto_peek.time - global_vars.real_time()) / (auto_peek.controls.speed:get() / 1000)), 72, auto_peek.controls.angle:get())
     end
 end
 
@@ -1633,7 +1649,7 @@ callbacks.add_event("bomb_planted", function(ctx)
         local ent = entity_list.get_player_from_userid(ctx.userid)
 
         if (ent and ent:is_player() and logging.control:get(logging.functions.bomb)) then
-            notification.add("Planted", ent:get_name() .. " planted the bomb.", 5)
+            notification.add("Planted", ent:get_name() .. " planted the bomb.", 5, true)
         end
     end
 end)
@@ -1643,7 +1659,7 @@ callbacks.add_event("bomb_defused", function(ctx)
         local ent = entity_list.get_player_from_userid(ctx.userid)
 
         if (ent and ent:is_player() and logging.control:get(logging.functions.bomb)) then
-            notification.add("Defused", ent:get_name() .. " defused the bomb.", 5)
+            notification.add("Defused", ent:get_name() .. " defused the bomb.", 5, true)
         end
     end
 end)
@@ -1668,9 +1684,9 @@ callbacks.add_event("vote_cast", function(ctx)
             if (logging.control:get(logging.functions.item_pickup)) then
                 if (logging.control:get(logging.functions.votes)) then
                     if (e.vote_option == 0) then
-                        notification.add("Vote", ent:get_name() ..  "Just voted YES in a vote.", 7.5)
+                        notification.add("Vote", ent:get_name() ..  "Just voted YES in a vote.", 7.5, true)
                     else
-                        notification.add("Vote", ent:get_name() ..  "Just voted NO in a vote.", 7.5)
+                        notification.add("Vote", ent:get_name() ..  "Just voted NO in a vote.", 7.5, true)
                     end
                 end
             end
@@ -1739,36 +1755,6 @@ end
 function clantag.run_shutdown()
     client.set_clantag("") 
 end
-
---[[
-    Dump API
---]]
-
-local api_dump = {
-    table = {}
-}
-
-api_dump.dump = function(tbl, ind)
-    api_dump.table[tbl] = true
-    local s = {}
-    local n = 0
-    for k in pairs(tbl) do
-        n = n + 1
-        s[n] = k
-    end
-
-    for k, v in ipairs(s) do
-        if (not tostring(v):find("weapons")) then
-            print(ind, v)
-            v = tbl[v]
-            if type(v) == "table" and not api_dump.table[v] then
-                api_dump.dump(v, ind .. "\t")
-            end
-        end
-    end
-end
-
-menu.add_button("General", "Dump API", function() api_dump.dump(_G, "") end)
 
 --[[
     Ragebot FOV
@@ -1861,19 +1847,36 @@ end
     Game Management Functions
 --]]
 
-menu.add_button("Game Management", "Set sv_cheats", function() engine.execute_cmd("sv_cheats 1") end)
+local game_management = {} game_management.__index, game_management.controls, game_management.toggled = {}, {}, false
 
-menu.add_text("Game Management", "Round Options")
-menu.add_button("Game Management", "End Warmup", function() engine.execute_cmd("mp_warmup_end") end)
-menu.add_button("Game Management", "Restart Game", function() engine.execute_cmd("mp_restartgame 1") end)
-menu.add_button("Game Management", "Max Roundtime", function() engine.execute_cmd("mp_roundtime 60; mp_roundtime_defuse 60; mp_roundtime_deployment 60; mp_roundtime_hostage 60") end)
-menu.add_button("Game Management", "Max Starting Money", function() engine.execute_cmd("mp_startmoney 16000") end)
+game_management.toggle_function = function()
+    if (game_management.controls and #game_management.controls > 0) then
+        for i = 1, #game_management.controls do
+            game_management.controls[i]:set_visible(game_management.toggled)
+        end
 
-menu.add_text("Game Management", "Bot Options")
-menu.add_button("Game Management", "Add CT Bot", function() engine.execute_cmd("bot_add_ct") end)
-menu.add_button("Game Management", "Add T Bot", function() engine.execute_cmd("bot_add_t") end)
-menu.add_button("Game Management", "Kick Bots", function() engine.execute_cmd("bot_kick") end)
-menu.add_button("Game Management", "Toggle Movement", function() engine.execute_cmd("bot_zombie " .. tostring(cvars.bot_zombie:get_int() == 1 and 0 or 1)) end)
+        game_management.toggled = not game_management.toggled
+    end
+end
+
+local toggle_button = menu.add_button("Game Management", "Toggle Settings", game_management.toggle_function)
+
+game_management.controls = {
+    menu.add_text("Game Management", "Cheat Mode"),
+    menu.add_button("Game Management", "Set sv_cheats", function() engine.execute_cmd("sv_cheats 1") end),
+    menu.add_text("Game Management", "Round Options"),
+    menu.add_button("Game Management", "End Warmup", function() engine.execute_cmd("mp_warmup_end") end),
+    menu.add_button("Game Management", "Restart Game", function() engine.execute_cmd("mp_restartgame 1") end),
+    menu.add_button("Game Management", "Max Roundtime", function() engine.execute_cmd("mp_roundtime 60; mp_roundtime_defuse 60; mp_roundtime_deployment 60; mp_roundtime_hostage 60") end),
+    menu.add_button("Game Management", "Max Starting Money", function() engine.execute_cmd("mp_startmoney 16000") end),
+    menu.add_text("Game Management", "Bot Options"),
+    menu.add_button("Game Management", "Add CT Bot", function() engine.execute_cmd("bot_add_ct") end),
+    menu.add_button("Game Management", "Add T Bot", function() engine.execute_cmd("bot_add_t") end),
+    menu.add_button("Game Management", "Kick Bots", function() engine.execute_cmd("bot_kick") end),
+    menu.add_button("Game Management", "Toggle Movement", function() engine.execute_cmd("bot_zombie " .. tostring(cvars.bot_zombie:get_int() == 1 and 0 or 1)) end),
+}
+
+game_management.toggle_function()
 menu.set_group_column("Game Management", 2)
 
 --[[
@@ -1901,9 +1904,39 @@ callbacks.add_event("player_connect_full", function()
             end
         end
 
-        notification.add("Materials", "Removed " .. removed_materials .. " material advertisements.", 2.5)
+        notification.add("Materials", "Removed " .. removed_materials .. " material advertisements.", 2.5, true)
     end
 end)
+
+--[[
+    Dump API
+--]]
+
+local api_dump = {
+    table = {}
+}
+
+api_dump.dump = function(tbl, ind)
+    api_dump.table[tbl] = true
+    local s = {}
+    local n = 0
+    for k in pairs(tbl) do
+        n = n + 1
+        s[n] = k
+    end
+
+    for k, v in ipairs(s) do
+        if (not tostring(v):find("weapons")) then
+            print(ind, v)
+            v = tbl[v]
+            if type(v) == "table" and not api_dump.table[v] then
+                api_dump.dump(v, ind .. "\t")
+            end
+        end
+    end
+end
+
+menu.add_button("General", "Dump API", function() api_dump.dump(_G, "") end)
 
 --[[
     Rainbow HUD
@@ -2142,20 +2175,19 @@ end
 --]]
 
 local killsay = {
-    control = menu.add_selection("General", "Killsay", { "Disabled", "All", "Targeted" }),
     messages = {
         "1", "You suck.", "nice stevie wonder aim", "Missclick", "lick my sphincter", "*DEAD*", "imagine not using jojosiwa.lua",
     }
 }
 
 callbacks.add_event("player_death", function(ctx)
-    if (killsay.control:get() ~= 1) then
+    if (player_list.controls.killsay:get() ~= 1) then
         if (ctx.userid and type(ctx.userid) == "number") then
             local ent, attacker = entity_list.get_player_from_userid(ctx.userid), entity_list.get_player_from_userid(ctx.attacker)
 
             if (ent and ent:is_player() and attacker and attacker:is_player()) then
                 if (local_player and local_player:is_player() and attacker == local_player) then
-                    if (killsay.control:get() == 3) then
+                    if (player_list.controls.killsay:get() == 3) then
                         for i = 1, #player_list.table do
                             if (player_list.table[i].entity and player_list.table[i].entity:is_player() and player_list.table[i].entity == ent) then
                                 if (player_list.table[i].checks.killsay) then
@@ -2199,8 +2231,7 @@ menu.add_button("Config", "Export Config", function()
     local clipboard_text = config.export_settings()
 
     if (clipboard_text) then
-        notification.add("Exported", "Your config has been exported to your clipboard.", 5)
-        global.log("Your config has been exported to your clipboard.")
+        notification.add("Exported", "Your config has been exported to your clipboard.", 5, true)
         clipboard.set(clipboard_text)
     else
         notification.add("Failed", "Your config has failed to export.", 5)
@@ -2209,8 +2240,7 @@ menu.add_button("Config", "Export Config", function()
 end)
 
 menu.add_button("Config", "Import Config", function()
-    notification.add("Imported", "Your config has been imported from your clipboard.", 5)
-    global.log("Your config has been imported from your clipboard.")
+    notification.add("Imported", "Your config has been imported from your clipboard.", 5, true)
 
     config.import_settings(clipboard.get())
     local clipboard_text = config.export_settings()
@@ -2233,7 +2263,7 @@ callbacks.add(e_callbacks.PAINT, function()
 
     render.pop_clip()
     window.run_windows()
-    if (hud.toggles.notifications:get()) then notification.run() end
+    if (notification.controls.enabled:get()) then notification.run() end
 
     local mm, mm2 = input.find_key_bound_to_binding("messagemode"), input.find_key_bound_to_binding("messagemode2")
     if (mm and mm2 and hud.chatbox.chatting == 0) then if (input.is_key_pressed(mm)) then hud.chatbox.chatting = 1 elseif (input.is_key_pressed(mm2)) then hud.chatbox.chatting = 2 end end
