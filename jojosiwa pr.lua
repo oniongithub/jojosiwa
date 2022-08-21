@@ -30,6 +30,12 @@ global.window_references = {
 global.color = global.window_references.menu_accent_2:get()
 global.log = function(...) client.log(color_t(237, 135, 255), "[jojosiwa.lua]", color_t(255, 255, 255), ...) end
 local e_keybind_modes = { TOGGLE = 0, HOLD_ON = 1, HOLD_OFF = 2, ALWAYS_ON = 3, ALWAYS_OFF = 4 }
+local e_mask = {
+    ALL = 0, SOLID = 1, PLAYERSOLID = 2, NPCSOLID = 3, NPCFLUID = 4, WATER = 5, OPAQUE = 6, OPAQUE_AND_NPCS = 7, BLOCKLOS = 8, 
+    VISIBLE = 9, VISIBLE_AND_NPCS = 10, SHOT = 11, FLOORTRACE = 12, WEAPONCLIPPING = 13, SHOT_BRUSHONLY = 14, 
+    SHOT_HULL = 15, SHOT_PORTAL = 16, SOLID_BRUSHONLY = 17, PLAYERSOLID_BRUSHONLY = 18, NPCSOLID_BRUSHONLY = 19, 
+    NPCWORLDSTATIC = 20, NPCWORLDSTATIC_FLUID = 21, SPLITAREAPORTAL = 22, DEADSOLID = 23
+}
 
 --[[
     Misc Functions
@@ -138,7 +144,51 @@ function vec3_t:to_angle(vec2)
     return angle_t(-math.deg(math.atan2(y, math.sqrt(x * x + z * z))), math.deg(math.atan2(z, x)) + 180, 0)
 end
 
-function render.circle_3d(pos, col, radius, angle, segments, percent)
+function math.get_ang_position(position, angles, rotation, radius)
+    local function to_rad(num)
+        return num * (math.pi / 180)
+    end
+
+    -- raise the z axis on position 18 units for the max step size https://gitlab.com/KittenPopo/csgo-2018-source/-/blob/main/game/server/nav.h#L34
+    local line_trace_1 = trace.line(vec3_t(position.x, position.y, position.z + 18), vec3_t(position.x + radius * math.cos(to_rad(angles.y + rotation)), position.y + radius * math.sin(to_rad(angles.y + rotation)), position.z + 18), entity_list.get_local_player(), e_mask.SOLID)
+    radius = radius * line_trace_1.fraction
+    
+    local line_trace = trace.line(position, vec3_t(position.x, position.y, position.z - 1000), entity_list.get_local_player(), e_mask.SOLID)
+
+    return vec3_t(position.x + radius * math.cos(to_rad(angles.y + rotation)), position.y + radius * math.sin(to_rad(angles.y + rotation)), line_trace ~= nil and (position.z - (1000 * line_trace.fraction)) or position.z)
+end
+
+function vec3_t:dist_to(vec)
+    return math.sqrt((self.x - vec.x)^2 + (self.y - vec.y)^2 + (self.z - vec.z)^2)
+end
+
+function render.circle_3d(pos, col, radius, angle, segments)
+    if (pos) then
+        local step, last_pos, first_pos = 360 / segments
+
+        for i = 1, 361, step do
+            local point = math.get_circumference_point(radius, angle + i, false)
+            point = vec3_t(pos.x + point.x, pos.y + point.y, pos.z)
+            local point_2d = render.world_to_screen(point)
+
+            if (point_2d) then
+                if (last_pos) then
+                    render.line(last_pos, point_2d, col)
+                else
+                    first_pos = point_2d
+                end
+
+                last_pos = point_2d
+
+                if (i + step >= 360) then
+                    render.line(last_pos, first_pos, col)
+                end
+            end
+        end
+    end
+end
+
+function render.circle_3d_gradient(pos, col, radius, angle, segments, percent)
     if (pos) then
         local step, last_pos = (360 * (percent / 100)) / segments
 
@@ -834,6 +884,33 @@ config.export_settings = function()
 end
 
 --[[
+    GUI Ragebot Library
+--]]
+
+local ragebot_translation = {
+    { name = "auto", weapons = { "scar20", "g3sg1" } },
+    { name = "scout", weapons = { "ssg08" } },
+    { name = "awp", weapons = { "awp" } },
+    { name = "deagle", weapons = { "deagle" } },
+    { name = "revolver", weapons = { "revolver" } },
+    { name = "pistols", weapons = { "p250", "cz75a", "usp-s", "tec9", "p2000", "fiveseven", "elite",  } }
+}
+
+ragebot_translation.find = function(weap, group, control)
+    local weapon_name, tab_name = weap ~= nil and weap:get_name() or "", "other"
+
+    for i = 1, #ragebot_translation do
+        for f = 1, #ragebot_translation[i].weapons do
+            if (ragebot_translation[i].weapons[f] == weapon_name) then
+                tab_name = ragebot_translation[i].name
+            end
+        end
+    end
+
+    return menu.find("aimbot", tab_name, group, control)
+end
+
+--[[
     HUD Functions
 --]]
 
@@ -1377,7 +1454,7 @@ local keybind = {
         { name = "Hide Shots", control = global.window_references.hide_shots },
         { name = "Fake Duck", control = global.window_references.fake_duck },
         { name = "Thirdperson", control = global.window_references.thirdperson },
-        { name = "Auto Peek", control = global.window_references.auto_peek },
+        { name = "Auto Return", control = global.window_references.auto_peek },
         { name = "Lean Resolver", control = global.window_references.body_lean },
         { name = "Extended Angles", control = global.window_references.extended_angles },
         { name = "Edge Jump", control = global.window_references.edge_jump },
@@ -1388,12 +1465,13 @@ window.window_list[hud.windows.keybind].draw_fn = function()
     local used_space, binds, show_mode = vec2_t(0, 0), {}, hud.context_menus["Keybinds"][1]:get()
 
     local function has_bind(binds, name, index, control, show_mode)
-        if (control and control[index]) then
-            local value = control[index]:get()
+        if (control and index ~= nil and (index == 0 or control[index])) then
+            local value
+            if (index == 0) then value = control:get() else value = control[index]:get() end
 
             if (show_mode) then
                 for i = 1, #keybind.mode_table do
-                    if (keybind.mode_table[i].enum == control[index]:get_mode()) then
+                    if (keybind.mode_table[i].enum == type(control) ~= "table" and control:get_mode() or control[index]:get_mode()) then
                         name = keybind.mode_table[i].name .. name
                     end
                 end
@@ -1495,23 +1573,27 @@ window.window_list[hud.windows.player_list].draw_fn = function()
     if (local_player_or_spectating and local_player_or_spectating:is_player()) then
         render.push_clip(window.window_list[hud.windows.player_list].pos, window.window_list[hud.windows.player_list].size)
 
-        local collumn_size = vec2_t((window.window_list[hud.windows.player_list].size.x - 24) / 4, window.window_list[hud.windows.player_list].size.y - window.window_list[hud.windows.player_list].tab_height - 8)
-        render.rect_filled(vec2_t(window.window_list[hud.windows.player_list].pos.x + 8, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y), color_t(25, 25, 25, 255), 6)
-        render.rect_filled(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y), color_t(25, 25, 25, 255), 6)
+        local collumn_size = vec2_t(window.window_list[hud.windows.player_list].size.x - 16, (window.window_list[hud.windows.player_list].size.y - window.window_list[hud.windows.player_list].tab_height) / 2 - 8)
+        render.rect_filled(vec2_t(window.window_list[hud.windows.player_list].pos.x + 8, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x, collumn_size.y), color_t(25, 25, 25, 255), 6)
+        render.rect_filled(vec2_t(window.window_list[hud.windows.player_list].pos.x + 8, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height + collumn_size.y + 8), vec2_t(collumn_size.x, collumn_size.y), color_t(25, 25, 25, 255), 6)
         render.pop_clip()
 
-        if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 8, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))) then
+        if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 8, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x, collumn_size.y))) then
             player_list.scroll.y = math.clamp(player_list.scroll.y + input.get_scroll_delta() * 10, -player_list.scroll_max.y, 0)
-        elseif (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))) then
+        elseif (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 8, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height + collumn_size.y + 8), vec2_t(collumn_size.x, collumn_size.y))) then
             player_list.scroll.x = math.clamp(player_list.scroll.x + input.get_scroll_delta() * 10, -player_list.scroll_max.x, 0)
         end
 
-        local function add_control(name, button, is_enabled, used_space, fn)
-            local collumn_size = vec2_t((window.window_list[hud.windows.player_list].size.x - 24) / 4, window.window_list[hud.windows.player_list].size.y - window.window_list[hud.windows.player_list].tab_height - 8)
-            local pos = vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height + player_list.scroll.x)
-            local size = vec2_t(collumn_size.x * 2, collumn_size.y)
+        player_list.scroll = vec2_t(math.clamp(player_list.scroll.x, -player_list.scroll_max.x, 0), math.clamp(player_list.scroll.y, -player_list.scroll_max.y, 0))
 
-            render.push_clip(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))
+        local last_size = vec2_t(0, 0)
+
+        local function add_control(name, button, is_enabled, used_space, fn)
+            local collumn_size = vec2_t(window.window_list[hud.windows.player_list].size.x - 16, (window.window_list[hud.windows.player_list].size.y - window.window_list[hud.windows.player_list].tab_height) / 2 - 8)
+            local pos = vec2_t(window.window_list[hud.windows.player_list].pos.x + 8, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height + player_list.scroll.x + collumn_size.y + 4)
+            local size = vec2_t(collumn_size.x, collumn_size.y)
+
+            render.push_clip(vec2_t(window.window_list[hud.windows.player_list].pos.x + 8, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height + collumn_size.y + 8), vec2_t(collumn_size.x, collumn_size.y))
             local text_size, text_pos = render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], name)
             if (button) then
                 text_pos = vec2_t(pos.x + size.x / 2 - text_size.x / 2, pos.y + used_space.x + text_size.y / 4 + 8)
@@ -1525,7 +1607,7 @@ window.window_list[hud.windows.player_list].draw_fn = function()
                 end
             end
 
-            if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 16 + collumn_size.x * 2, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2, collumn_size.y))
+            if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 8, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height + collumn_size.y + 8), vec2_t(collumn_size.x, collumn_size.y))
                 and input.is_mouse_in_bounds(vec2_t(pos.x + 8, pos.y + used_space.x + 8), vec2_t(size.x - 16, text_size.y + 8))) then
                 window.window_list[hud.windows.player_list].flags.FL_NOMOVE = true
                 render.text(window.fonts.segoe_ui_13[window.font_dpi], name, text_pos, global.color)
@@ -1543,17 +1625,17 @@ window.window_list[hud.windows.player_list].draw_fn = function()
             render.pop_clip()
 
             used_space.x = used_space.x + text_size.y + 12
-            return used_space, is_enabled
+            return text_size.y - 4, used_space, is_enabled
         end
 
-        local players, used_space = entity_list.get_players(false), vec2_t(0, 0)
+        local players, used_space = entity_list.get_players(false), vec2_t(4, 0)
         for _, ply in pairs(players) do
             if (ply ~= local_player) then
                 local text_size = render.get_text_size(window.fonts.segoe_ui_13[window.font_dpi], ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name())
                 local text_pos = vec2_t(window.window_list[hud.windows.player_list].pos.x + 14, window.window_list[hud.windows.player_list].pos.y + used_space.y + player_list.scroll.y + window.window_list[hud.windows.player_list].tab_height + 6)
                 
                 render.push_clip(vec2_t(window.window_list[hud.windows.player_list].pos.x + 12, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2 - 20, collumn_size.y - 12))
-                if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 12, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x * 2 - 20, collumn_size.y - 12))
+                if (input.is_mouse_in_bounds(vec2_t(window.window_list[hud.windows.player_list].pos.x + 12, window.window_list[hud.windows.player_list].pos.y + window.window_list[hud.windows.player_list].tab_height), vec2_t(collumn_size.x - 12, collumn_size.y - 12))
                     and input.is_mouse_in_bounds(vec2_t(text_pos.x, text_pos.y - 2), vec2_t(collumn_size.x * 2 - 20, text_size.y + 4)) or ply == selected_ent) then
                     render.text(window.fonts.segoe_ui_13[window.font_dpi], ply:has_player_flag(e_player_flags.FAKE_CLIENT) and "BOT - " .. ply:get_name() or ply:get_name(), text_pos, global.color)
                     if (ply ~= selected_ent) then window.window_list[hud.windows.player_list].flags.FL_NOMOVE = true end
@@ -1573,27 +1655,28 @@ window.window_list[hud.windows.player_list].draw_fn = function()
                         ind = #player_list.table
                     end
 
-                    used_space, player_list.table[ind].checks.whitelist = add_control("Whitelist", false, player_list.table[ind].checks.whitelist, used_space)
-                    used_space, player_list.table[ind].checks.priority = add_control("Priority", false, player_list.table[ind].checks.priority, used_space)
-                    used_space, player_list.table[ind].checks.baim = add_control("Force Bodyaim", false, player_list.table[ind].checks.baim, used_space)
-                    used_space, player_list.table[ind].checks.killsay = add_control("Killsay Target", false, player_list.table[ind].checks.killsay, used_space)
+                    last_size.x, used_space, player_list.table[ind].checks.whitelist = add_control("Whitelist", false, player_list.table[ind].checks.whitelist, used_space)
+                    last_size.x, used_space, player_list.table[ind].checks.priority = add_control("Priority", false, player_list.table[ind].checks.priority, used_space)
+                    last_size.x, used_space, player_list.table[ind].checks.baim = add_control("Force Bodyaim", false, player_list.table[ind].checks.baim, used_space)
+                    last_size.x, used_space, player_list.table[ind].checks.killsay = add_control("Killsay Target", false, player_list.table[ind].checks.killsay, used_space)
 
-                    used_space = add_control("Steal Username", true, nil, used_space, function() cvars.name:set_string(ply:get_name()) end)
+                    last_size.x, used_space = add_control("Steal Username", true, nil, used_space, function() cvars.name:set_string(ply:get_name()) end)
 
                     if (not ply:has_player_flag(e_player_flags.FAKE_CLIENT)) then
-                        used_space, player_list.table[ind].checks.steal_clantag = add_control("Steal Clantag", false, player_list.table[ind].checks.steal_clantag, used_space)
-                        used_space, player_list.table[ind].checks.repeat_chat = add_control("Repeat Chat", false, player_list.table[ind].checks.repeat_chat, used_space)
+                        last_size.x, used_space, player_list.table[ind].checks.steal_clantag = add_control("Steal Clantag", false, player_list.table[ind].checks.steal_clantag, used_space)
+                        last_size.x, used_space, player_list.table[ind].checks.repeat_chat = add_control("Repeat Chat", false, player_list.table[ind].checks.repeat_chat, used_space)
                     else
-                        used_space = add_control("Kick Bot", true, nil, used_space, function() engine.execute_cmd("kick " .. ply:get_name()) end)
-                        used_space = add_control("Kill Bot", true, nil, used_space, function() engine.execute_cmd("kill " .. ply:get_name()) end)
+                        last_size.x, used_space = add_control("Kick Bot", true, nil, used_space, function() engine.execute_cmd("kick " .. ply:get_name()) end)
+                        last_size.x, used_space = add_control("Kill Bot", true, nil, used_space, function() engine.execute_cmd("kill " .. ply:get_name()) end)
                     end
                 end
                 
+                last_size.y = text_size.y
                 used_space.y = used_space.y + text_size.y + 4
             end
         end
 
-        player_list.scroll_max = used_space
+        player_list.scroll_max = vec2_t(math.clamp(used_space.x - collumn_size.y + last_size.x, 0, screen_size.x), math.clamp(used_space.y - collumn_size.y + last_size.y, 0, screen_size.y))
     end
 end
 
@@ -1613,7 +1696,7 @@ auto_peek.controls.color = auto_peek.controls.custom_color:add_color_picker("Cus
 
 function auto_peek.run_paint()
     if (global.window_references.auto_peek_2:get() and auto_peek.controls.enabled:get()) then
-        render.circle_3d(ragebot.get_autopeek_pos(), auto_peek.controls.custom_color:get() == true and auto_peek.controls.color:get() or global.color, 25, 360 * ((auto_peek.time - global_vars.real_time()) / (auto_peek.controls.speed:get() / 1000)), 72, auto_peek.controls.angle:get())
+        render.circle_3d_gradient(ragebot.get_autopeek_pos(), auto_peek.controls.custom_color:get() == true and auto_peek.controls.color:get() or global.color, 25, 360 * ((auto_peek.time - global_vars.real_time()) / (auto_peek.controls.speed:get() / 1000)), 72, auto_peek.controls.angle:get())
     end
 end
 
@@ -2224,6 +2307,253 @@ fd_discharge.on_setup_command = function()
 end
 
 --[[
+    Spoof Netvar FPS
+--]]
+
+local netvar_spoof = {
+    control = menu.add_checkbox("General", "Spoof FPS", true),
+    slider = menu.add_slider("General", "FPS Value", 0, 999, 3, 0, "fps"),
+}
+
+ffi.cdef[[
+    struct do_you_know_who_joe_is
+    {
+        char please_tell_me[78264];
+        float i_cant_figure_it_out;
+    };
+]]
+
+netvar_spoof.who = memory.find_pattern("client.dll", "89 1D ? ? ? ? 8B C3")
+netvar_spoof.asked = ffi.cast("struct do_you_know_who_joe_is***", (ffi.cast("char*", netvar_spoof.who) + 0x2))[0][0]
+
+netvar_spoof.get_frame_calculation = function(fps)
+    fps = 1 / (fps + 1)
+    return ((fps / 0.9) - ((1 - 0.9) * global_vars.absolute_frame_time()))
+end
+
+netvar_spoof.run_paint = function()
+    if (netvar_spoof.asked and netvar_spoof.control:get()) then
+        netvar_spoof.asked.i_cant_figure_it_out = netvar_spoof.get_frame_calculation(netvar_spoof.slider:get())
+    end
+end
+
+--[[
+    Automated Peeking
+--]]
+
+local automated_peeking = {
+    references = {
+        enabled = menu.add_checkbox("Automated Peeking", "Enabled", true),
+        auto_min = menu.add_checkbox("Automated Peeking", "Auto Minimum", true),
+        auto_peek = menu.find("aimbot", "general", "misc", "autopeek")[2],
+        segments = menu.add_slider("Automated Peeking", "Segments", 0, 3, 1, 0, "+"),
+        radius = menu.add_slider("Automated Peeking", "Radius", 0, 100, 1, 0, "m"),
+        minimum = menu.add_slider("Automated Peeking", "Minimum Damage", 0, 100, 1, 0, "hp"),
+        bones = menu.add_multi_selection("Automated Peeking", "Scanned Groups", { "Head", "Neck", "Body", "Chest" }),
+        renders = menu.add_multi_selection("Automated Peeking", "Rendering", { "Segments", "Position", "Lines" }),
+    },
+    peek_position = nil,
+    can_shoot = false,
+    shot = false,
+}
+
+menu.set_group_column("Automated Peeking", 1)
+
+automated_peeking.references.enabled_bind = automated_peeking.references.enabled:add_keybind("Enabled")
+automated_peeking.references.render_color = automated_peeking.references.renders:add_color_picker("Render Color")
+automated_peeking.references.radius:set(30) automated_peeking.references.minimum:set(50)
+for i = 1, 4 do automated_peeking.references.bones:set(i, true) end
+
+table.insert(keybind.binds, { name = "Auto Peek", control = automated_peeking.references.enabled_bind, index = 0 })
+
+automated_peeking.hitbox_index_tbl = {
+    { bone = e_hitboxes.HEAD, index = 1 },
+    { bone = e_hitboxes.NECK, index = 2 },
+    { bone = e_hitboxes.BODY, index = 3 },
+    { bone = e_hitboxes.CHEST, index = 4 },
+}
+
+automated_peeking.shootable = function(position, height, minimum)
+    local enemies = entity_list.get_players(true)
+    local min = 0 position.z = position.z + height
+
+    local local_player = entity_list.get_local_player()
+    local local_weapon = local_player:get_active_weapon()
+    local attack_time = local_weapon:get_prop("m_flNextPrimaryAttack")
+    local server_time = local_player:get_prop("m_nTickBase") * global_vars.interval_per_tick()
+    local weapon_info = local_weapon:get_weapon_data()
+
+    if (attack_time <= server_time and local_weapon:get_prop("m_iClip1") > 0 and ((weapon_info.zoom_levels <= 0) or local_player:get_prop("m_bIsScoped") == 1)) then
+        for i, ply in pairs(enemies) do
+            if (not ply:is_dormant() and ply:is_alive()) then
+
+                for f = 1, #automated_peeking.hitbox_index_tbl do
+                    if (automated_peeking.references.bones:get(automated_peeking.hitbox_index_tbl[f].index)) then
+                        local bullet_trace = trace.bullet(position, ply:get_hitbox_pos(automated_peeking.hitbox_index_tbl[f].bone), local_player, ply)
+
+                        if (bullet_trace.valid and bullet_trace.hit_player and ply:get_index() == bullet_trace.hit_player:get_index()) then
+                            if (bullet_trace.damage > min) then min = bullet_trace.damage end
+
+                            if (bullet_trace.damage >= minimum) then
+                                return { valid = true, minimum = bullet_trace.damage, index = ply:get_index() }
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return { valid = false, minimum = min, index = nil }
+end
+
+automated_peeking.run_paint = function()
+    if (automated_peeking.references.auto_peek:get() and automated_peeking.references.enabled:get() and automated_peeking.references.enabled_bind:get() and exploits.get_charge() / exploits.get_max_charge() == 1) then
+        local col, angles, rad = automated_peeking.can_shoot == false and automated_peeking.references.render_color:get() or global.color, engine.get_view_angles(), automated_peeking.references.radius:get()
+
+        if (ragebot.get_autopeek_pos()) then
+            if (automated_peeking.references.renders:get(2)) then
+                render.circle_3d(ragebot.get_autopeek_pos(), col, 12, 0, 24)
+            end
+
+            if (automated_peeking.references.renders:get(3)) then
+                local w2s_1, w2s_2, w2s_3, w2s_4 = render.world_to_screen(ragebot.get_autopeek_pos()), render.world_to_screen(math.get_ang_position(ragebot.get_autopeek_pos(), angles, -90, rad)),
+                                                   render.world_to_screen(ragebot.get_autopeek_pos()), render.world_to_screen(math.get_ang_position(ragebot.get_autopeek_pos(), angles, 90, rad))
+
+                if (w2s_1 and w2s_2) then render.line(w2s_1, w2s_2, col) end
+                if (w2s_3 and w2s_4) then render.line(w2s_3, w2s_4, col) end
+            end
+
+            if (automated_peeking.references.renders:get(1)) then
+                render.circle_3d(math.get_ang_position(ragebot.get_autopeek_pos(), angles, -90, rad), col, 4, 0, 12)
+                render.circle_3d(math.get_ang_position(ragebot.get_autopeek_pos(), angles, 90, rad), col, 4, 0, 12)
+
+                for i = 0, automated_peeking.references.segments:get() do
+                    if (i ~= 0) then
+                        local angle = (3 - i) * 45 if (angle >= 90) then angle = angle + 45 end
+
+                        render.circle_3d(math.get_ang_position(ragebot.get_autopeek_pos(), angles, angle ~= 0 and -angle or 0, rad), col, 4, 0, 12)
+                        render.circle_3d(math.get_ang_position(ragebot.get_autopeek_pos(), angles, angle ~= 0 and angle or 180, rad), col, 4, 0, 12)
+                    end
+                end
+            end
+        end
+    end
+end
+
+automated_peeking.run_setup_command = function(cmd)
+    automated_peeking.can_shoot = false
+    local local_player = entity_list.get_local_player()
+
+    if (local_player and local_player:is_alive() and local_player:has_player_flag(e_player_flags.ON_GROUND) and not local_player:has_player_flag(e_player_flags.DUCKING)) then
+        if (automated_peeking.references.auto_peek:get() and ragebot.get_autopeek_pos() and automated_peeking.references.enabled:get() and automated_peeking.references.enabled_bind:get() and
+            exploits.get_charge() / exploits.get_max_charge() == 1 and (not automated_peeking.shot or ragebot.get_autopeek_pos():dist_to(local_player:get_render_origin()) <= 5)) then
+            if (ragebot.get_autopeek_pos()) then
+                local min_damage_ctrl, override_ctrl = ragebot_translation.find(local_player:get_active_weapon(), "targeting", "min. damage"),
+                                                       ragebot_translation.find(local_player:get_active_weapon(), "target overrides", "force min. damage")
+
+                local angles, rad, min = engine.get_view_angles(), automated_peeking.references.radius:get(), not automated_peeking.references.auto_min:get() and automated_peeking.references.minimum:get() or (override_ctrl[2]:get() and override_ctrl[1]:get() or min_damage_ctrl:get())
+                local head_pos, origin = local_player:get_hitbox_pos(e_hitboxes.HEAD), local_player:get_render_origin()
+                local height = math.abs(origin.z - head_pos.z)
+                automated_peeking.shot = false
+
+                local pos_1, pos_2 = math.get_ang_position(ragebot.get_autopeek_pos(), angles, -90, rad),
+                                    math.get_ang_position(ragebot.get_autopeek_pos(), angles, 90, rad)
+
+                local shot_1, shot_2 = automated_peeking.shootable(pos_1, height, min), automated_peeking.shootable(pos_2, height, min)
+
+                if (shot_1.valid and not automated_peeking.can_shoot) then automated_peeking.peek_position, automated_peeking.can_shoot = pos_1, true cmd.move.y = 450 end
+                if (shot_2.valid and not automated_peeking.can_shoot) then automated_peeking.peek_position, automated_peeking.can_shoot = pos_2, true cmd.move.y = -450 end
+
+                for i = 0, automated_peeking.references.segments:get() do
+                    if (i ~= 0) then
+                        local angle = (3 - i) * 45 if (angle >= 90) then angle = angle + 45 end
+
+                        local pos_3, pos_4 = math.get_ang_position(ragebot.get_autopeek_pos(), angles, angle ~= 0 and -angle or 0, rad),
+                                            math.get_ang_position(ragebot.get_autopeek_pos(), angles, angle ~= 0 and angle or 180, rad)
+
+                        local shot_3, shot_4 = automated_peeking.shootable(pos_3, height, min), automated_peeking.shootable(pos_4, height, min)
+
+                        if (shot_3.valid and not automated_peeking.can_shoot) then automated_peeking.peek_position, automated_peeking.can_shoot = pos_3, true end
+                        if (shot_4.valid and not automated_peeking.can_shoot) then automated_peeking.peek_position, automated_peeking.can_shoot = pos_4, true end
+                    end
+                end
+            end
+        end
+    end
+end
+
+automated_peeking.aimbot_shoot = function()
+    automated_peeking.shot = true
+end
+
+--[[
+    Oneway Helper
+--]]
+
+local oneway_helper = {} oneway_helper.__index = {}
+
+oneway_helper.references = {
+    enabled = menu.add_checkbox("Oneway Helper", "Enabled", false),
+    minimum_distance = menu.add_slider("Oneway Helper", "Distance", 0, 1000, 10),
+}
+
+oneway_helper.references.enabled_bind = oneway_helper.references.enabled:add_keybind("Enabled Bind")
+oneway_helper.references.color = oneway_helper.references.enabled:add_color_picker("Enabled Color")
+
+oneway_helper.spots = {
+    { name = "de_mirage", locations = {
+        { name = "Catwalk Window", pos = vec3_t(-1122.8596191406, 291.46002197266, -159.96875), ang = angle_t(29.040, 40.033, 0), max_size = 12 },
+        { name = "Connector Box", pos = vec3_t(-802.75592041016, -1164.2203369141, -120.1753692627), ang = angle_t(-2.045, -50.034, 0), max_size = 8 },
+        { name = "Apartments Wall", pos = vec3_t(-699.02551269531, 551.17620849609, -83.816764831543), ang = angle_t(8.975, -93.123, 0), max_size = 16 },
+        { name = "Apartments Window", pos = vec3_t(-450.98748779297, 745.00396728516, -71.96875), ang = angle_t(5.367, -151.656, 0), max_size = 8 },
+        { name = "Apartments to Cat", pos = vec3_t(224.1258392334, 767.08465576172, -135.96875), ang = angle_t(6.621, -89.822, 0), max_size = 16 },
+        { name = "Terrorist Spawn", pos = vec3_t(1281.8616943359, 352.5380859375, -231.96875), ang = angle_t(-0.264, -93.439, 0), max_size = 16 },
+        { name = "Market Hold", pos = vec3_t(-1283.849609375, -978.5869140625, -167.96875), ang = angle_t(2.595, 142.899, 0), max_size = 8 },
+        { name = "B to Market", pos = vec3_t(-2271.1064453125, 694.29321289062, -39.96875), ang = angle_t(3.167, -66.738, 0), max_size = 8 },
+        { name = "CT Spawn to A", pos = vec3_t(-1521.0914306641, -1650.9343261719, -262.46234130859), ang = angle_t(-0.154, -74.814, 0), max_size = 8 },
+        { name = "Default to CT", pos = vec3_t(-178.50628662109, -2095.6701660156, -167.96875), ang = angle_t(3.519, -164.200, 0), max_size = 8 },
+        { name = "Cat to Apartments", pos = vec3_t(-1055.4891357422, 105.05711364746, -169.10629272461), ang = angle_t(-7.6119637489319, 103.02938079834, 0), max_size = 8 },
+    } },
+}
+
+oneway_helper.run_paint = function()
+    if (oneway_helper.references.enabled:get() and oneway_helper.references.enabled_bind:get()) then
+        local map, local_player = engine.get_level_name_short(), entity_list.get_local_player()
+
+        if (local_player and local_player:is_alive()) then
+            local local_origin, minimum_distance, draw_color = local_player:get_render_origin(), oneway_helper.references.minimum_distance:get(), oneway_helper.references.color:get()
+
+            local table_contains = function(map)
+                for i = 1, #oneway_helper.spots do
+                    if (oneway_helper.spots[i].name == map) then return i end
+                end
+            end
+
+            local map_index = table_contains(map)
+            if (map_index) then
+                for i, location in pairs(oneway_helper.spots[map_index].locations) do
+                    local distance = local_origin:dist_to(location.pos)
+                    local percent = 1 - math.clamp(((distance - location.max_size) / minimum_distance), 0, 1)
+
+                    if (percent > 0) then
+                        local new_angle, max_size = location.ang:from_angle(), location.max_size * percent
+                        render.circle_3d(location.pos, percent == 1 and global.color or draw_color, math.floor(max_size), 0, 36)
+                        
+                        local position_2d, position_2d_2 = render.world_to_screen(location.pos), 
+                                                        render.world_to_screen(vec3_t(location.pos.x + (new_angle.x * (max_size / 2)), location.pos.y + (new_angle.y * (max_size / 2)), location.pos.z))
+
+                        if (position_2d and position_2d_2) then
+                            render.line(position_2d, position_2d_2, percent == 1 and global.color or draw_color)
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+--[[
     Config System
 --]]
 
@@ -2258,6 +2588,9 @@ callbacks.add(e_callbacks.PAINT, function()
     auto_peek.run_paint()
     clantag.run_paint()
     rainbow.run_paint()
+    netvar_spoof.run_paint()
+    automated_peeking.run_paint()
+    oneway_helper.run_paint()
 
     if (client.get_fps() > information.max_fps) then information.max_fps = client.get_fps() end
 
@@ -2286,11 +2619,12 @@ callbacks.add(e_callbacks.SETUP_COMMAND, function(cmd)
     clantag.run_setup_commands()
     jojosiwa_aa.run_setup_command()
     anti_afk.run_setup_command(cmd)
+    automated_peeking.run_setup_command(cmd)
     legitbot.run(cmd)
 
     if (hud.chatbox.chatting ~= 0) then
         cmd.move.x, cmd.move.y = 0, 0
-        cmd:clear_buttons(0)
+        cmd:clear_buttons()
     end
 end)
 
@@ -2339,4 +2673,8 @@ end)
 
 callbacks.add(e_callbacks.AIMBOT_MISS, function(ctx)
     aim_logs.aimbot_miss(ctx)
+end)
+
+callbacks.add(e_callbacks.AIMBOT_SHOOT, function()
+    automated_peeking.aimbot_shoot()
 end)
